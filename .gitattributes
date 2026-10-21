@@ -1,0 +1,9 @@
+* text=auto
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+*.md text eol=lf whitespace=-blank-at-eol
+*.yml text eol=lf
+*.ps1 text eol=crlf
+*.hex text eol=lf
