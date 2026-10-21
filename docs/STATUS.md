@@ -17,11 +17,18 @@ Updated: 2026-10-21. Milestone: P0 foundations and local capture probe.
 - No real-time phone image in the Windows client yet.
 - No transport/session authentication, decoder, GPU rendering, remote gestures, IME or audio yet.
 - No measured device compatibility, latency or power figures.
-- Android build results must be checked in CI; source presence is not proof of APK or device validation.
+- Real-device capture, permissions and encoder behavior still need verification; an APK build is not device validation.
+
+## Verified build baseline
+
+- Local Windows MinGW-w64 Release build and CTest passed.
+- Commit `005003e`: GitHub Windows/MSVC and Linux builds/tests passed; Android unit tests, lint and debug APK build passed.
+- [Verified CI run and downloadable development artifacts](https://github.com/fodenspider/phone-mirror/actions/runs/39596351558).
+- No latency, power consumption or real-device compatibility result is claimed.
 
 ## Next vertical slice
 
-1. Build the Android APK and collect a real target-device capture; validate codec config and access units.
+1. Install the built Android APK and collect a real target-device capture; validate codec config and access units.
 2. Implement offline H.264 decoding to D3D11 output as a testable Windows media backend.
 3. Add authenticated loopback sessions through ADB forwarding, bounded video queues and keyframe recovery.
 4. Connect that same decoder to live input; measure phone-to-display latency.
