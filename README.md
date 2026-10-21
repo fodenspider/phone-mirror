@@ -68,7 +68,7 @@ APK：`android/app/build/outputs/apk/debug/app-debug.apk`。也可从成功的 A
 ./build/pm-inspect.exe ./capture.pmstream
 ```
 
-`run-as` 仅用于调试构建。脚本以原始字节写文件，避免 PowerShell 文本重定向破坏视频数据。检查器当前验证消息边界和长度，**不验证 H.264 是否可解码**；真机画质和延迟还没有测量。
+`run-as` 仅用于调试构建。导出脚本要求 PowerShell 7，以原始字节写文件，避免文本重定向破坏视频数据。检查器当前验证消息边界和长度，**不验证 H.264 是否可解码**；真机画质和延迟还没有测量。
 
 ## 文档
 
