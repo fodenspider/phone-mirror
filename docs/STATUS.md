@@ -52,3 +52,11 @@ Follow [the product plan](product-plan.md): a novice-friendly, calm native UI wi
 3. Resume real-device control, reconnection, permission and performance tests only when the user says a phone is available.
 
 Repository source is original to this project; earlier scrcpy documents are research history only.
+# 2026-10-22：0.4 产品入口与打包进展
+
+新增四步引导、组件导入、手机应用安装入口、状态页面和安全诊断复制；原生轻量窗口不引入浏览器运行时。
+
+本地 7 项自动测试通过，包含无手机的窗口流程与模拟传输。官方 Platform-Tools 37.0.1 导入及非法摘要拒绝通过。安装包流水线新增隔离安装/启动/卸载验证，远程结果以对应 Actions 运行记录为准。
+
+尚未完成：完整缩放视觉验收、设备选择与画质设置、正式签名，以及真机控制和性能验收。此轮不连接手机。
+

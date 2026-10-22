@@ -12,6 +12,8 @@ public:
     ~AdbSession();
     UsbEndpoint connect(std::stop_token, std::function<void(std::wstring)> progress);
     static std::filesystem::path locate();
+    static void install_companion(const std::filesystem::path& apk,std::stop_token);
+    static void import_components(const std::filesystem::path& script,const std::filesystem::path& zip,std::stop_token);
 private:
     std::filesystem::path adb_;
     std::wstring serial_;

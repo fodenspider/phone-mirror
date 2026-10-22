@@ -346,7 +346,7 @@ PlaybackStats play_stream(MessageSource source,const PlaybackOptions& options,
         if(gpu) ++stats.gpu_frames; else ++stats.cpu_frames;
         last=sample; last_type=type;
         const auto now=std::chrono::steady_clock::now();
-        if(options.on_progress && now-progress_at>=std::chrono::seconds(1)) {
+        if(options.on_progress && (stats.decoded_frames==1 || now-progress_at>=std::chrono::seconds(1))) {
             options.on_progress(stats); progress_at=now;
         }
     });
