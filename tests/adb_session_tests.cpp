@@ -10,12 +10,21 @@ int main(int argc,char** argv) {
         if(std::string(argv[1])=="devices") {
             std::cout<<"List of devices attached\n";
             if(mode=="unauthorized") std::cout<<"test-phone\tunauthorized\n";
-            else if(mode!="none") std::cout<<"test-phone\tdevice\n";
-            if(mode=="multiple") std::cout<<"test-two\tdevice\n";
+            else if(mode=="offline") std::cout<<"test-phone\toffline\n";
+            else if(mode!="none" && mode!="gone") std::cout<<"test-phone\tdevice product:test model:Test_Phone\n";
+            if(mode=="multiple" || mode=="gone") std::cout<<"test-two\tdevice product:test model:Second_Phone\n";
+            if(mode=="mixed") std::cout<<"test-two\tunauthorized\n";
             return 0;
         }
-        if(argc<4 || std::string(argv[1])!="-s" || std::string(argv[2])!="test-phone") return 1;
+        char target[64]{}; GetEnvironmentVariableA("PM_TEST_TARGET",target,64);
+        const std::string expected=*target?target:"test-phone";
+        if(argc<4 || std::string(argv[1])!="-s" || std::string(argv[2])!=expected) return 1;
         const std::string operation=argv[3];
+        if(operation=="install") {
+            if(argc!=7 || std::string(argv[4])!="--no-streaming" || std::string(argv[5])!="-r") return 1;
+            if(mode=="install-failed") {std::cout<<"Failure [TEST_ONLY]\n"; return 1;}
+            std::cout<<"Success\n"; return 0;
+        }
         if(operation=="shell") { if(mode=="missing") { std::cout<<"Error type 3\n"; return 1; } return 0; }
         if(operation=="exec-out") {
             if(mode=="waiting") return 1;
@@ -33,7 +42,32 @@ int main(int argc,char** argv) {
             throw std::runtime_error("missing expected state error");
         };
         expect("none","DEVICE_MISSING"); expect("unauthorized","DEVICE_UNAUTHORIZED");
+        expect("offline","DEVICE_OFFLINE");
         expect("multiple","DEVICE_MULTIPLE"); expect("missing","PHONE_APP_MISSING");
+        expect("mixed","DEVICE_MULTIPLE");
+        SetEnvironmentVariableA("PM_TEST_ADB_STATE","multiple");
+        SetEnvironmentVariableA("PM_TEST_TARGET","test-two");
+        { pm::AdbSession session(path); const auto devices=session.devices({});
+          if(devices.size()!=2 || devices[1].label.find(L"Second Phone")==std::wstring::npos) throw std::runtime_error("device list mismatch");
+          const auto endpoint=session.connect({},[](std::wstring){},L"test-two");
+          if(endpoint.port!=4321) throw std::runtime_error("selected connection failed");
+          // This executable is a stand-in file; only the fake subprocess receives it.
+          session.install(path,{},L"test-two"); }
+        SetEnvironmentVariableA("PM_TEST_TARGET",nullptr);
+        SetEnvironmentVariableA("PM_TEST_ADB_STATE","gone");
+        for(bool install:{false,true}) {
+            try { pm::AdbSession session(path);
+                if(install) session.install(path,{},L"test-phone");
+                else session.connect({},[](std::wstring){},L"test-phone");
+                throw std::runtime_error("selected device silently changed");
+            } catch(const std::exception& e) { if(std::string(e.what())!="DEVICE_SELECTED_MISSING") throw; }
+        }
+        SetEnvironmentVariableA("PM_TEST_ADB_STATE","mixed");
+        try { pm::AdbSession session(path); session.install(path,{},L"test-two"); throw std::runtime_error("unauthorized install accepted"); }
+        catch(const std::exception& e) {if(std::string(e.what())!="DEVICE_UNAUTHORIZED") throw;}
+        SetEnvironmentVariableA("PM_TEST_ADB_STATE","install-failed");
+        try { pm::AdbSession session(path); session.install(path,{}); throw std::runtime_error("failed install accepted"); }
+        catch(const std::exception& e) {if(std::string(e.what())!="INSTALL_FAILED") throw;}
         SetEnvironmentVariableA("PM_TEST_ADB_STATE","ready");
         { pm::AdbSession session(path); const auto endpoint=session.connect({},[](std::wstring){});
           if(endpoint.port!=4321 || endpoint.token[0]!=0x11) throw std::runtime_error("endpoint mismatch"); }

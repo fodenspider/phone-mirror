@@ -18,6 +18,8 @@ struct App {
     HWND window=nullptr,video=nullptr,status=nullptr,compatibility=nullptr,description=nullptr;
     pm::ui::Preferences preferences;
     std::filesystem::path preferences_path;
+    std::vector<pm::Device> available_devices;
+    std::wstring selected_device;
     std::jthread worker;
     std::mutex mutex;
     std::wstring text=L"用数据线连接手机，然后点击“连接手机”。首次使用需要在手机上确认授权。";
@@ -55,6 +57,27 @@ struct App {
         const bool apk=std::filesystem::is_regular_file(folder()/L"companion/phone-mirror.apk",ec);
         const auto message=pm::ui::readiness(components,apk);
         MessageBoxW(window,message.c_str(),L"检查准备情况",MB_OK|MB_ICONINFORMATION);
+    }
+    void refresh_devices() {
+        if(!finished) return;
+        if(worker.joinable()) worker.join();
+        {std::lock_guard lock(mutex); available_devices.clear();}
+        finished=false; screen=pm::ui::Screen::connecting;
+        report(L"正在刷新手机列表，可点击停止取消……");
+        SetTimer(window,1,30,nullptr);
+        worker=std::jthread([this](std::stop_token stop) {
+            try {
+                pm::AdbSession session(pm::AdbSession::locate());
+                auto devices=session.devices(stop); const auto count=devices.size();
+                {std::lock_guard lock(mutex); available_devices=std::move(devices);}
+                screen=pm::ui::Screen::home;
+                report(count?L"列表已更新。请打开“更多 → 选择手机”，选择后再连接或安装手机应用。":L"没有发现手机。请检查数据线和手机授权，再刷新列表。");
+            } catch(const std::exception& e) {
+                if(stop.stop_requested()) { screen=pm::ui::Screen::stopped; report(L"已取消刷新手机列表。"); }
+                else { const auto problem=pm::ui::failure(e.what()); {std::lock_guard lock(mutex); last_failure=problem;} screen=pm::ui::Screen::error; report(problem.message); }
+            }
+            finished=true; PostMessageW(window,status_message,0,0);
+        });
     }
     void layout() {
         RECT r{}; GetClientRect(window,&r); const int w=r.right,h=r.bottom;
@@ -101,9 +124,9 @@ struct App {
         screen=pm::ui::Screen::connecting; finished=false;
         report(install?L"正在安装手机应用，请留意手机上的确认提示。可点击停止取消等待。":L"正在校验并导入连接组件……");
         SetTimer(window,1,30,nullptr);
-        worker=std::jthread([this,install,zip](std::stop_token stop) {
+        worker=std::jthread([this,install,zip,selected=selected_device](std::stop_token stop) {
             try {
-                if(install) pm::AdbSession::install_companion(folder()/L"companion/phone-mirror.apk",stop);
+                if(install) pm::AdbSession::install_companion(folder()/L"companion/phone-mirror.apk",stop,selected);
                 else {
                     auto script=folder()/L"scripts/import-components.ps1";
                     if(!std::filesystem::exists(script)) script=folder()/L"../scripts/import-components.ps1";
@@ -146,13 +169,13 @@ struct App {
         screen=pm::ui::Screen::connecting;
         report(endpoint?L"正在连接手机 USB 会话……":software?L"正在播放（兼容解码模式）……":L"正在播放（优先使用 GPU 输出）……");
         phase_time=GetTickCount64();
-        worker=std::jthread([this,path,software,endpoint,automatic](std::stop_token token) {
+        worker=std::jthread([this,path,software,endpoint,automatic,selected=selected_device](std::stop_token token) {
             try {
                 auto live_endpoint=endpoint;
                 std::unique_ptr<pm::AdbSession> session;
                 if(automatic) {
                     session=std::make_unique<pm::AdbSession>(pm::AdbSession::locate());
-                    live_endpoint=session->connect(token,[this](std::wstring message) { report(std::move(message)); });
+                    live_endpoint=session->connect(token,[this](std::wstring message) { report(std::move(message)); },selected);
                 }
                 pm::PlaybackOptions options; options.window=video; options.paced=true;
                 options.hold_last_frame=true; options.software=software;
@@ -196,7 +219,15 @@ struct App {
                 if(GetWindowTextLengthW(description)<30 || child.left<0 || child.top<0 || child.right>parent.right || child.bottom>parent.bottom) { exit_code=1; close(); }
                 return;
             }
-            if(smoke_phase==5) { screen=pm::ui::Screen::error; report(pm::ui::failure("DEVICE_UNAUTHORIZED").message); return; }
+            if(smoke_phase==5) {
+                available_devices={{L"fake-one",L"模拟手机 1",true},{L"fake-two",L"模拟手机 2",true}};
+                SendMessageW(window,WM_COMMAND,101,0);
+                if(selected_device!=L"fake-two") exit_code=1;
+                SendMessageW(window,WM_COMMAND,16,0);
+                if(!selected_device.empty()) exit_code=1;
+                available_devices.clear();
+                screen=pm::ui::Screen::error; report(pm::ui::failure("DEVICE_UNAUTHORIZED").message); return;
+            }
             close();
         }
         // Never join a rendering thread while it may synchronously message this window.
@@ -342,9 +373,27 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             AppendMenuW(menu,MF_STRING,12,L"复制诊断信息");
             AppendMenuW(menu,MF_STRING,13,L"关于 Phone Mirror");
             AppendMenuW(menu,MF_STRING,14,L"检查准备情况");
+            AppendMenuW(menu,MF_STRING|(app->finished?0:MF_GRAYED),15,L"刷新手机列表");
+            const auto devices_menu=CreatePopupMenu();
+            AppendMenuW(devices_menu,MF_STRING|(app->selected_device.empty()?MF_CHECKED:0),16,L"自动选择（仅一台时）");
+            {std::lock_guard lock(app->mutex);
+                for(size_t i=0;i<app->available_devices.size();++i) {
+                    const auto& d=app->available_devices[i];
+                    AppendMenuW(devices_menu,MF_STRING|(d.serial==app->selected_device?MF_CHECKED:0),100+i,d.label.c_str());
+                }
+            }
+            AppendMenuW(menu,MF_POPUP|(app->finished?0:MF_GRAYED),reinterpret_cast<UINT_PTR>(devices_menu),L"选择手机");
             AppendMenuW(menu,MF_STRING|(SendMessageW(app->compatibility,BM_GETCHECK,0,0)==BST_CHECKED?MF_CHECKED:0),6,L"兼容解码（下次连接生效）");
             RECT r{}; GetWindowRect(GetDlgItem(window,1),&r);
             TrackPopupMenu(menu,TPM_LEFTALIGN,r.left,r.bottom,0,window,nullptr); DestroyMenu(menu);
+        } else if(LOWORD(wparam)==15) { app->refresh_devices();
+        } else if(LOWORD(wparam)==16 && app->finished) { app->selected_device.clear(); app->report(L"已改为自动选择：仅检测到一台手机时才会连接或安装。");
+        } else if(LOWORD(wparam)>=100 && LOWORD(wparam)<228 && app->finished) {
+            std::wstring label;
+            {std::lock_guard lock(app->mutex); const size_t index=LOWORD(wparam)-100;
+                if(index<app->available_devices.size()) { app->selected_device=app->available_devices[index].serial; label=app->available_devices[index].label; }
+            }
+            if(!label.empty()) app->report(L"已选择："+label+L"。连接和安装均只针对该手机。");
         } else if(LOWORD(wparam)==14) { app->check_preparation();
         } else if(LOWORD(wparam)==7) { app->show_guide();
         } else if(LOWORD(wparam)==9 || LOWORD(wparam)==10) {

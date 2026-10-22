@@ -21,7 +21,24 @@ std::wstring quote(const std::wstring& s) {
     out.append(slashes*2,L'\\'); return out+L'\"';
 }
 struct Result { DWORD code; std::string text; };
+std::wstring select_device(const std::vector<Device>& devices,const std::wstring& selected) {
+    if(!selected.empty()) {
+        for(const auto& device:devices) if(device.serial==selected) {
+            if(device.offline) throw std::runtime_error("DEVICE_OFFLINE");
+            if(!device.authorized) throw std::runtime_error("DEVICE_UNAUTHORIZED");
+            return device.serial;
+        }
+        throw std::runtime_error("DEVICE_SELECTED_MISSING");
+    }
+    if(devices.empty()) throw std::runtime_error("DEVICE_MISSING");
+    // Never silently pick one authorized phone while another phone awaits authorization.
+    if(devices.size()!=1) throw std::runtime_error("DEVICE_MULTIPLE");
+    if(devices.front().offline) throw std::runtime_error("DEVICE_OFFLINE");
+    if(!devices.front().authorized) throw std::runtime_error("DEVICE_UNAUTHORIZED");
+    return devices.front().serial;
+}
 Result run(const std::filesystem::path& executable,const std::vector<std::wstring>& args,std::stop_token stop={},unsigned timeout=8) {
+    if(stop.stop_requested()) throw std::runtime_error("CANCELLED");
     SECURITY_ATTRIBUTES security{sizeof(security),nullptr,TRUE}; Handle read,write;
     if(!CreatePipe(&read.value,&write.value,&security,0) || !SetHandleInformation(read.value,HANDLE_FLAG_INHERIT,0))
         throw std::runtime_error("ADB_PIPE");
@@ -66,19 +83,27 @@ std::filesystem::path AdbSession::locate() {
         if(std::filesystem::is_regular_file(candidate)) return std::filesystem::weakly_canonical(candidate);
     throw std::runtime_error("ADB_MISSING");
 }
-UsbEndpoint AdbSession::connect(std::stop_token stop,std::function<void(std::wstring)> progress) {
-    progress(L"正在查找手机……");
-    const auto list=run(adb_,{L"devices"},stop);
+std::vector<Device> AdbSession::devices(std::stop_token stop) {
+    const auto list=run(adb_,{L"devices",L"-l"},stop);
     if(list.code) throw std::runtime_error("ADB_LAUNCH");
-    std::istringstream rows(list.text); std::string line; std::vector<std::string> devices; bool unauthorized=false;
+    std::istringstream rows(list.text); std::string line; std::vector<Device> result;
     while(std::getline(rows,line)) {
         std::istringstream row(line); std::string serial,state; row>>serial>>state;
-        if(state=="device") devices.push_back(serial);
-        if(state=="unauthorized") unauthorized=true;
+        if(state!="device" && state!="unauthorized" && state!="offline") continue;
+        if(serial.empty() || serial.size()>256 || result.size()>=128) throw std::runtime_error("DEVICE_LIST_INVALID");
+        std::string model,field;
+        while(row>>field) if(field.starts_with("model:")) model=field.substr(6,80);
+        for(auto& c:model) if(!((c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9') || c=='-')) c=' ';
+        std::wstring name=model.empty()?L"Android 手机":std::wstring(model.begin(),model.end());
+        name+=L" · "+std::to_wstring(result.size()+1);
+        name+=state=="device"?L"（可连接）":state=="offline"?L"（离线，请重连）":L"（请在手机授权）";
+        result.push_back({std::wstring(serial.begin(),serial.end()),name,state=="device",state=="offline"});
     }
-    if(devices.empty()) throw std::runtime_error(unauthorized?"DEVICE_UNAUTHORIZED":"DEVICE_MISSING");
-    if(devices.size()!=1) throw std::runtime_error("DEVICE_MULTIPLE");
-    serial_=std::wstring(devices[0].begin(),devices[0].end());
+    return result;
+}
+UsbEndpoint AdbSession::connect(std::stop_token stop,std::function<void(std::wstring)> progress,const std::wstring& selected) {
+    progress(L"正在查找手机……");
+    serial_=select_device(devices(stop),selected);
     const auto opened=run(adb_,{L"-s",serial_,L"shell",L"am",L"start",L"-n",L"io.github.fodenspider.phonemirror/.MainActivity"},stop);
     if(opened.code || opened.text.find("Error")!=std::string::npos) throw std::runtime_error("PHONE_APP_MISSING");
     progress(L"请在手机点击“USB 实时投屏”并允许共享屏幕。此处会自动连接，你也可以点击停止取消。");
@@ -103,16 +128,13 @@ UsbEndpoint AdbSession::connect(std::stop_token stop,std::function<void(std::wst
     }
     throw std::runtime_error(stop.stop_requested()?"CANCELLED":"PHONE_CONSENT_TIMEOUT");
 }
-void AdbSession::install_companion(const std::filesystem::path& apk,std::stop_token stop) {
+void AdbSession::install_companion(const std::filesystem::path& apk,std::stop_token stop,const std::wstring& selected) {
+    AdbSession session(locate()); session.install(apk,stop,selected);
+}
+void AdbSession::install(const std::filesystem::path& apk,std::stop_token stop,const std::wstring& selected) {
     if(!std::filesystem::is_regular_file(apk)) throw std::runtime_error("APK_MISSING");
-    const auto adb=locate(); const auto list=run(adb,{L"devices"},stop);
-    if(list.code) throw std::runtime_error("ADB_LAUNCH");
-    std::istringstream rows(list.text); std::string line; unsigned count=0; bool denied=false;
-    while(std::getline(rows,line)) { std::istringstream row(line); std::string name,state; row>>name>>state;
-        if(state=="device") ++count; if(state=="unauthorized") denied=true; }
-    if(!count) throw std::runtime_error(denied?"DEVICE_UNAUTHORIZED":"DEVICE_MISSING");
-    if(count!=1) throw std::runtime_error("DEVICE_MULTIPLE");
-    const auto result=run(adb,{L"-d",L"install",L"--no-streaming",L"-r",apk.wstring()},stop,120);
+    const auto target=select_device(devices(stop),selected);
+    const auto result=run(adb_,{L"-s",target,L"install",L"--no-streaming",L"-r",apk.wstring()},stop,120);
     if(result.code || result.text.find("Success")==std::string::npos) throw std::runtime_error("INSTALL_FAILED");
 }
 void AdbSession::import_components(const std::filesystem::path& script,const std::filesystem::path& zip,std::stop_token stop) {

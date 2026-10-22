@@ -15,8 +15,10 @@ inline constexpr std::array<Step,4> steps{{
 struct Failure { std::wstring message; std::string code; };
 inline Failure failure(std::string_view code) {
     if(code=="DEVICE_MISSING") return {L"还没有发现手机。请检查数据线，解锁手机并打开 USB 调试，然后重试。","DEVICE_MISSING"};
+    if(code=="DEVICE_OFFLINE") return {L"手机连接已离线。请重新插接数据线、解锁手机，然后刷新列表重试。","DEVICE_OFFLINE"};
     if(code=="DEVICE_UNAUTHORIZED") return {L"请在手机上允许这台电脑连接，然后重试。","DEVICE_UNAUTHORIZED"};
-    if(code=="DEVICE_MULTIPLE") return {L"检测到多台手机。当前版本请只保留一台连接，然后重试。","DEVICE_MULTIPLE"};
+    if(code=="DEVICE_MULTIPLE") return {L"检测到多台手机。请在“更多”中刷新手机列表，然后选择要使用的手机。","DEVICE_MULTIPLE"};
+    if(code=="DEVICE_SELECTED_MISSING") return {L"选中的手机已断开。请重连这台手机，或在“更多”中刷新列表并重新选择。","DEVICE_SELECTED_MISSING"};
     if(code=="ADB_MISSING") return {L"连接组件尚未准备好。请打开使用指南，完成第一步。","ADB_MISSING"};
     if(code=="PHONE_APP_MISSING" || code=="APK_MISSING") return {L"手机应用尚未准备好。请打开使用指南，完成第二步；若安装文件缺失，请重新安装完整程序包。","PHONE_APP_MISSING"};
     if(code=="INSTALL_FAILED") return {L"手机应用未安装成功。请查看手机上的提示，允许安装后重试；旧应用不会被自动卸载。","INSTALL_FAILED"};
