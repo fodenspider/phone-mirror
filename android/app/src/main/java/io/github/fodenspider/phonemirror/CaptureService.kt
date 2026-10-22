@@ -16,9 +16,13 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Bounded, local-only capture probe. No socket and no remote control permissions. */
+/** User-consented local probe or single-use, loopback-only USB video session. */
 class CaptureService : Service() {
-    companion object { @Volatile var active = false; private const val CHANNEL = "capture" }
+    companion object {
+        @Volatile var active = false
+        @Volatile var liveStatus = ""
+        private const val CHANNEL = "capture"
+    }
     private val worker = HandlerThread("capture-probe")
     private lateinit var handler: Handler
     private var projection: MediaProjection? = null
@@ -26,6 +30,8 @@ class CaptureService : Service() {
     private var surface: Surface? = null
     private var display: VirtualDisplay? = null
     private var output: BufferedOutputStream? = null
+    private var usb: UsbStreamer? = null
+    private var live = false
     private var stopped = false
     private var frames = 0L
     private var sequence = 0L
@@ -47,7 +53,7 @@ class CaptureService : Service() {
     override fun onBind(intent: Intent?) = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP") { stopSelf(); return START_NOT_STICKY }
-        if (active) return START_NOT_STICKY
+        if (active || stopped) return START_NOT_STICKY
         @Suppress("DEPRECATION")
         val data = intent?.getParcelableExtra<Intent>("projectionData")
         if (data == null) { stopSelf(); return START_NOT_STICKY }
@@ -56,16 +62,30 @@ class CaptureService : Service() {
         val stop = PendingIntent.getService(this, 1,
             Intent(this, CaptureService::class.java).setAction("STOP"),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        live = intent?.getBooleanExtra("live", false) == true
+        liveStatus = if (live) "等待电脑通过 USB 连接；两分钟未连接会自动结束" else "正在进行 15 秒本地采集"
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentTitle("Phone Mirror 正在验证屏幕采集")
-            .setContentText("最长 15 秒，仅保存在本机")
+            .setContentTitle(if (live) "Phone Mirror · USB 屏幕共享" else "Phone Mirror · 本地采集")
+            .setContentText(if (live) "仅向本次授权的 USB 电脑共享，点击停止结束" else "最长 15 秒，仅保存在本机")
             .setOngoing(true).addAction(Notification.Action.Builder(null, "停止", stop).build()).build()
         startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
         active = true
         val code = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
         handler.post {
-            try { startCapture(code, data) }
+            try {
+                if (live) {
+                    usb = UsbStreamer(File(filesDir, "usb-session.json"), {
+                        handler.post {
+                            if (!stopped) try {
+                                liveStatus = "USB 已连接，正在共享画面"
+                                startCapture(code, data)
+                            } catch (e: Exception) { stopCapture("采集失败：${e.javaClass.simpleName}") }
+                        }
+                    }, { reason -> handler.post { stopCapture(reason) } })
+                    usb!!.start()
+                } else startCapture(code, data)
+            }
             catch (e: Exception) { stopCapture("采集失败：${e.javaClass.simpleName}: ${e.message}") }
         }
         return START_NOT_STICKY
@@ -85,6 +105,7 @@ class CaptureService : Service() {
             setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, 30f)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            if (live) setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000L)
         }
         val candidates = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter {
             it.isEncoder && it.isHardwareAccelerated && it.supportedTypes.contains(MediaFormat.MIMETYPE_VIDEO_AVC)
@@ -97,12 +118,13 @@ class CaptureService : Service() {
         codec!!.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         surface = codec!!.createInputSurface()
         // One bounded file replaces the previous probe; no screen data is logged.
-        output = BufferedOutputStream(File(filesDir, "capture.pmstream").outputStream())
+        if (!live) output = BufferedOutputStream(File(filesDir, "capture.pmstream").outputStream())
         codec!!.start()
         display = projection!!.createVirtualDisplay("PhoneMirrorProbe", width, height,
             resources.displayMetrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler)
-        handler.postDelayed({ stopCapture("15 秒采集完成") }, 15_000)
+        if (!live) handler.postDelayed({ stopCapture("15 秒采集完成") }, 15_000)
+        else handler.postDelayed({ stopCapture("预览会话已达一小时，请重新授权") }, 3_600_000)
         handler.post(::drain)
     }
     private fun drain() {
@@ -146,26 +168,29 @@ class CaptureService : Service() {
         return ByteArray(copy.remaining()).also { copy.get(it) }
     }
     private fun write(type: Int, payload: ByteArray, flags: Int, timestamp: Long) {
-        check(bytesWritten + Protocol.HEADER_SIZE + payload.size <= 32L * 1024 * 1024) { "Capture file budget exceeded" }
+        if (!live) check(bytesWritten + Protocol.HEADER_SIZE + payload.size <= 32L * 1024 * 1024) { "Capture file budget exceeded" }
         val header = Protocol.encode(Protocol.Header(type, flags, payload.size, 1, 1, sequence++, timestamp))
-        output!!.write(header); output!!.write(payload)
+        if (live) usb!!.offer(header, payload) else { output!!.write(header); output!!.write(payload) }
         bytesWritten += header.size + payload.size
     }
     private fun stopCapture(reason: String) {
         if (stopped) return
         stopped = true; handler.removeCallbacksAndMessages(null)
+        usb?.finish(Protocol.encode(Protocol.Header(4, streamId = 1, streamEpoch = 1, sequence = sequence)))
+        usb = null
         display?.release(); display = null
         runCatching { codec?.stop() }; runCatching { codec?.release() }; codec = null
         surface?.release(); surface = null
         projection?.unregisterCallback(callback); projection?.stop(); projection = null
         val closeError = runCatching { output?.close() }.exceptionOrNull(); output = null
         getSharedPreferences("capture", MODE_PRIVATE).edit().putString("status",
-            "$reason\n编码器：$encoderName\n尺寸：${width}×$height\n帧数：$frames\n文件：capture.pmstream（$bytesWritten 字节）" +
+            "$reason\n编码器：$encoderName\n尺寸：${width}×$height\n帧数：$frames\n" +
+                (if (live) "USB 会话已结束，未保存实时画面" else "文件：capture.pmstream（$bytesWritten 字节）") +
                 if (closeError != null) "\n文件关闭失败，文件可能不完整" else "").apply()
-        active = false; stopSelf()
+        liveStatus = reason; stopSelf()
     }
     override fun onDestroy() {
-        handler.post { stopCapture("用户停止采集"); worker.quitSafely() }
+        handler.post { stopCapture("用户停止共享"); active = false; worker.quitSafely() }
         super.onDestroy()
     }
 }

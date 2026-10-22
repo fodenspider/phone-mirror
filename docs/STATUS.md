@@ -1,6 +1,6 @@
 # Development status
 
-Updated: 2026-10-22. Milestone: local capture playback through the Windows media backend.
+Updated: 2026-10-22. Milestone: authenticated USB live-preview implementation; real-device live validation pending.
 
 ## Implemented
 
@@ -13,13 +13,14 @@ Updated: 2026-10-22. Milestone: local capture playback through the Windows media
 - Strict capture configuration, sequence, timestamp and initial-IDR validation.
 - Offline framing inspector plus an actual decode/render verification tool.
 - Android user-consented, foreground-service Surface/H.264 capture probe with 15-second and 32-MiB limits.
-- Android privacy-preserving default: no network service, remote-control permission or background startup.
+- Android loopback-only USB stream with one-time 128-bit authentication, bounded queue and explicit user consent. No LAN listener, remote-control permission or background startup.
+- Windows cancellable USB receiver and launcher; credential passes through an inherited pipe, forwarding is cleaned up at receiver exit.
 - Build/test workflow and development documentation.
 
 ## Not implemented / not claimed
 
-- No real-time phone image in the Windows client yet.
-- No transport/session authentication, remote gestures, IME or audio yet.
+- USB live code is implemented, but real-device live validation is still pending.
+- No remote gestures, IME, audio or automatic keyframe recovery yet.
 - No measured device compatibility, latency or power figures.
 - A single device capture has been decoded successfully; permission revocation, broader encoder behavior and other devices still need testing.
 
@@ -36,8 +37,8 @@ Updated: 2026-10-22. Milestone: local capture playback through the Windows media
 
 ## Next vertical slice
 
-1. Add authenticated loopback sessions through ADB forwarding, bounded video queues and keyframe recovery.
-2. Connect the validated decoder to live input; measure phone-to-display latency.
+1. Validate USB preview on the connected phone, including clean stop and cable disconnection.
+2. Measure phone-to-display latency and CPU/memory use; add keyframe recovery after congestion.
 3. Add a separately consented accessibility control prototype and test dragging before promising full control.
 
 Repository source is original to this project; earlier scrcpy documents are research history only.

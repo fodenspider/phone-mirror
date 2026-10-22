@@ -4,6 +4,8 @@
 #include <functional>
 #include <stop_token>
 #include <cstdint>
+#include "phone_mirror/protocol.hpp"
+#include <optional>
 
 namespace pm {
 struct PlaybackStats {
@@ -17,7 +19,11 @@ struct PlaybackOptions {
     bool paced = false;
     bool hold_last_frame = false;
     std::filesystem::path snapshot; // optional final rendered BMP; diagnostic only
+    std::function<void(const PlaybackStats&)> on_progress;
 };
+using MessageSource = std::function<std::optional<Message>()>;
+PlaybackStats play_stream(MessageSource, const PlaybackOptions&,
+    std::stop_token = {}, std::function<void(const PlaybackStats&)> on_complete = {});
 PlaybackStats play_capture(const std::filesystem::path&, const PlaybackOptions&,
     std::stop_token = {}, std::function<void(const PlaybackStats&)> on_complete = {});
 }

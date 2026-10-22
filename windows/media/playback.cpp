@@ -318,15 +318,21 @@ private:
 
 PlaybackStats play_capture(const std::filesystem::path& path,const PlaybackOptions& options,
     std::stop_token stop,std::function<void(const PlaybackStats&)> on_complete) {
-    Runtime runtime;
     std::ifstream file(path,std::ios::binary); if(!file) throw std::runtime_error("cannot open capture file");
+    return play_stream([&] { return read_message(file); },options,stop,std::move(on_complete));
+}
+PlaybackStats play_stream(MessageSource source,const PlaybackOptions& options,
+    std::stop_token stop,std::function<void(const PlaybackStats&)> on_complete) {
+    Runtime runtime;
     CaptureValidator validator;
-    auto first=read_message(file); if(!first) throw ProtocolError("empty capture");
+    auto first=source(); if(stop.stop_requested()) return {};
+    if(!first) throw ProtocolError("empty capture");
     validator.accept(*first); const auto& config=validator.config();
     Renderer renderer(options.window,config.width,config.height);
     PlaybackStats stats; stats.width=config.width; stats.height=config.height;
     ComPtr<IMFSample> last; ComPtr<IMFMediaType> last_type;
     Waiter wait; auto start=std::chrono::steady_clock::now(); bool clock_started=false;
+    auto progress_at=start;
     Decoder decoder(renderer,config,options.software,[&](IMFSample* sample,IMFMediaType* type) {
         if (stop.stop_requested()) return;
         if(options.paced) {
@@ -339,10 +345,14 @@ PlaybackStats play_capture(const std::filesystem::path& path,const PlaybackOptio
         const bool gpu=renderer.render(sample,type); ++stats.decoded_frames;
         if(gpu) ++stats.gpu_frames; else ++stats.cpu_frames;
         last=sample; last_type=type;
+        const auto now=std::chrono::steady_clock::now();
+        if(options.on_progress && now-progress_at>=std::chrono::seconds(1)) {
+            options.on_progress(stats); progress_at=now;
+        }
     });
     stats.d3d_manager=decoder.uses_manager;
     while(!stop.stop_requested()) {
-        auto message=read_message(file); if(!message) break;
+        auto message=source(); if(!message) break;
         validator.accept(*message);
         decoder.submit(*message); ++stats.input_frames;
     }

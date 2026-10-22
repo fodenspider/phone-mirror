@@ -27,6 +27,8 @@ jobs:
             build/Release/PhoneMirror.exe
             build/Release/pm-inspect.exe
             build/Release/pm-playback-check.exe
+            build/Release/pm-live-check.exe
+            scripts/start-usb.ps1
           if-no-files-found: error
   android:
     runs-on: ubuntu-latest

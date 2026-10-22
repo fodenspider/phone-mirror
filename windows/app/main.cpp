@@ -1,4 +1,5 @@
 #include "playback.hpp"
+#include "usb_client.hpp"
 #include <commdlg.h>
 #include <shellapi.h>
 #include <thread>
@@ -13,8 +14,9 @@ struct App {
     HWND window=nullptr,video=nullptr,status=nullptr,compatibility=nullptr;
     std::jthread worker;
     std::mutex mutex;
-    std::wstring text=L"打开手机导出的 .pmstream 文件进行本地播放。USB 实时投屏尚未接入。";
+    std::wstring text=L"USB 投屏请通过启动脚本连接；也可打开本地采集文件。";
     std::filesystem::path pending,smoke_file;
+    std::optional<pm::UsbEndpoint> pending_usb;
     std::atomic<bool> finished{true},completed{false},failed{false};
     bool closing=false,smoke=false;
     unsigned smoke_phase=0;
@@ -26,20 +28,29 @@ struct App {
     }
     void request_stop() { if(worker.joinable()) worker.request_stop(); }
     void open(const std::filesystem::path& path) {
-        pending=path; request_stop(); SetTimer(window,1,30,nullptr);
+        pending_usb.reset(); pending=path; request_stop(); SetTimer(window,1,30,nullptr);
     }
     void close() { closing=true; pending.clear(); request_stop(); SetTimer(window,1,30,nullptr); }
     void start() {
         const auto path=std::exchange(pending,{});
+        const auto endpoint=std::exchange(pending_usb,std::nullopt);
         const bool software=SendMessageW(compatibility,BM_GETCHECK,0,0)==BST_CHECKED;
-        finished=false; completed=false;
-        report(software?L"正在播放（兼容解码模式）……":L"正在播放（优先使用 GPU 输出）……");
+        finished=false; completed=false; failed=false;
+        report(endpoint?L"正在连接手机 USB 会话……":software?L"正在播放（兼容解码模式）……":L"正在播放（优先使用 GPU 输出）……");
         phase_time=GetTickCount64();
-        worker=std::jthread([this,path,software](std::stop_token token) {
+        worker=std::jthread([this,path,software,endpoint](std::stop_token token) {
             try {
                 pm::PlaybackOptions options; options.window=video; options.paced=true;
                 options.hold_last_frame=true; options.software=software;
-                pm::play_capture(path,options,token,[this](const pm::PlaybackStats& s) {
+                if(endpoint) {
+                    options.paced=false; options.hold_last_frame=false;
+                    options.on_progress=[this](const pm::PlaybackStats& s) {
+                        report(L"USB 实时共享：已显示 "+std::to_wstring(s.decoded_frames)+L" 帧；GPU 输出 "+std::to_wstring(s.gpu_frames)+L" 帧。停止后需在手机重新授权连接。");
+                    };
+                    pm::UsbClient client(*endpoint,token);
+                    const auto stats=pm::play_stream([&] { return client.next(); },options,token);
+                    report(L"USB 共享已结束，共显示 "+std::to_wstring(stats.decoded_frames)+L" 帧。重新连接需在手机再次授权。");
+                } else pm::play_capture(path,options,token,[this](const pm::PlaybackStats& s) {
                     report(L"播放完成："+std::to_wstring(s.decoded_frames)+L" 帧；GPU 输出 "+
                         std::to_wstring(s.gpu_frames)+L" 帧，软件输出 "+std::to_wstring(s.cpu_frames)+L" 帧。重新打开可再次播放。");
                     completed=true;
@@ -56,7 +67,7 @@ struct App {
         // Never join a rendering thread while it may synchronously message this window.
         if(worker.joinable() && finished) worker.join();
         if(closing) { if(!worker.joinable()) DestroyWindow(window); return; }
-        if(!pending.empty() && !worker.joinable()) start();
+        if((!pending.empty() || pending_usb) && !worker.joinable()) start();
         if(smoke) {
             if(failed || GetTickCount64()>deadline) { exit_code=1; close(); return; }
             if(smoke_phase==0 && completed) {
@@ -67,7 +78,7 @@ struct App {
             } else if(smoke_phase==2 && pending.empty() && !completed && GetTickCount64()-phase_time>300) {
                 request_stop(); smoke_phase=3;
             } else if(smoke_phase==3 && !worker.joinable()) close();
-        } else if(pending.empty()) KillTimer(window,1);
+        } else if(pending.empty() && !pending_usb && !worker.joinable()) KillTimer(window,1);
     }
 };
 LRESULT CALLBACK video_proc(HWND window,UINT message,WPARAM wparam,LPARAM lparam) {
@@ -106,7 +117,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             dialog.lpstrFile=path; dialog.nMaxFile=32768; dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
             if(GetOpenFileNameW(&dialog)) app->open(path);
         } else if(LOWORD(wparam)==2) {
-            app->pending.clear(); app->request_stop(); app->report(L"已停止。打开采集文件可重新播放。");
+            app->pending.clear(); app->pending_usb.reset(); app->request_stop(); app->report(L"正在停止共享。");
         }
         return 0;
     case WM_TIMER: app->tick(); return 0;
@@ -130,11 +141,23 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
     int argc=0; auto argv=CommandLineToArgvW(GetCommandLineW(),&argc);
     app.smoke=argv && argc==3 && std::wstring(argv[1])==L"--smoke";
     if(app.smoke) { app.smoke_file=argv[2]; app.deadline=GetTickCount64()+30000; }
-    HWND window=CreateWindowW(wc.lpszClassName,L"Phone Mirror · 本地采集播放",
+    if(argv && argc==3 && std::wstring(argv[1])==L"--usb") {
+        try {
+            std::string secret(32,'\0'); DWORD used=0,total=0;
+            while(total<32 && ReadFile(GetStdHandle(STD_INPUT_HANDLE),secret.data()+total,32-total,&used,nullptr) && used) total+=used;
+            if(total!=32) throw pm::ProtocolError("USB credential missing");
+            std::size_t consumed=0; const auto port=std::stoul(argv[2],&consumed);
+            if(consumed!=std::wstring(argv[2]).size() || port>65535) throw pm::ProtocolError("invalid port");
+            app.pending_usb=pm::usb_endpoint(static_cast<unsigned>(port),secret);
+            SecureZeroMemory(secret.data(),secret.size());
+        } catch(...) { LocalFree(argv); return 2; }
+    }
+    HWND window=CreateWindowW(wc.lpszClassName,L"Phone Mirror · USB 实时预览",
         WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,720,900,nullptr,nullptr,instance,&app);
     if(!window) { if(argv) LocalFree(argv); return 1; }
     ShowWindow(window,app.smoke?SW_HIDE:show);
     if(app.smoke) app.open(app.smoke_file);
+    else if(app.pending_usb) SetTimer(window,1,30,nullptr);
     else if(argv && argc==2) app.open(argv[1]);
     if(argv) LocalFree(argv);
     MSG message{}; BOOL result;
