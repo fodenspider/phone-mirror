@@ -38,7 +38,7 @@ The P0 Android app writes concatenated frames using stream ID 1, epoch 1, and in
 
 `VIDEO_ACCESS_UNIT` payload: one complete AVC output access unit from Android MediaCodec. Bit 0 indicates a keyframe. Codec configuration buffers are not emitted as access units. Codec PTS is forwarded without pretending it is a wall-clock time.
 
-The offline inspector currently checks framing, not video configuration semantics, sequence continuity, authentication or bitstream decodability. These additional checks belong to the receiver implementation milestone.
+`pm-inspect` checks framing. The shared `CaptureValidator` used by the player additionally validates configuration lengths, even dimensions up to 4096, SPS/PPS Annex B NAL types, contiguous sequence, stable stream/epoch, initial IDR and nondecreasing timestamps. It limits the timeline to one hour. The offline player accepts one configuration followed by access units; it rejects live stream transitions for now. `pm-playback-check` actually decodes and renders all units, and fails if decoded frame count differs from input. Authentication remains a future transport-layer requirement.
 
 ## Shared fixture
 

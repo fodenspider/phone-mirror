@@ -26,6 +26,7 @@ jobs:
           path: |
             build/Release/PhoneMirror.exe
             build/Release/pm-inspect.exe
+            build/Release/pm-playback-check.exe
           if-no-files-found: error
   android:
     runs-on: ubuntu-latest

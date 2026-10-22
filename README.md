@@ -2,24 +2,26 @@
 
 独立实现的 Android → Windows 手机映射项目，目标是低延迟、低占用的日常投屏和控制。
 
-**当前为 P0 开发阶段，不是可直接使用的投屏软件。** 不包含或复用 scrcpy 的代码、服务端、可执行程序或内部协议。
+**当前支持手机采集文件的本地播放，仍不是实时投屏软件。** 不包含或复用 scrcpy 的代码、服务端、可执行程序或内部协议。
 
 ## 当前已经实现
 
 - C++20 协议库：40 字节大端头、类型长度上限、半包/粘包处理、异常流拒绝。
 - C++ / Kotlin 共用协议测试向量，边界、截断、错误头和随机变异测试。
-- Windows 原生窗口工程，以及离线协议文件检查工具 `pm-inspect`。
+- Windows 原生播放器：打开采集文件、按时间戳播放、等比缩放、停止和重新播放。
+- Media Foundation H.264 解码与 D3D11 视频处理；支持 GPU 表面输出及可选软件解码后上传显示。
+- 离线协议检查工具 `pm-inspect`，以及实际解码渲染检查工具 `pm-playback-check`。
 - Android 采集原型：用户授权后，通过 Surface 输入硬件 H.264 编码，最多采集 15 秒，写入应用私有目录的 `capture.pmstream`。
 - GitHub Actions：Windows / Linux C++ 构建测试，以及 Android 单测、Lint、调试 APK 构建。工作流是否成功以仓库 Actions 实际结果为准。
 
-**尚未实现**：USB 实时传输、Windows 视频解码显示、远程手势/中文输入、音频、无线配对和完整录像。窗口不会显示手机画面，安卓原型不会启动网络服务。
+**尚未实现**：USB 实时传输、远程手势/中文输入、音频、无线配对和完整录像。当前播放的是已经采集的文件，安卓原型不会启动网络服务。
 
 ## 技术路线
 
 ```text
 Android: Kotlin + MediaProjection + MediaCodec
                    ↓ 自研 PMIR 协议（USB 通道待接入）
-Windows: C++20 + Media Foundation + D3D11 / DXGI（媒体后端待接入）
+Windows: C++20 + Media Foundation + D3D11 / DXGI（本地播放已接通）
 ```
 
 手机需要安装伴侣 App 并授权。后续控制功能将单独请求无障碍服务权限；当前原型不申请控制权限。
@@ -68,7 +70,25 @@ APK：`android/app/build/outputs/apk/debug/app-debug.apk`。也可从成功的 A
 ./build/pm-inspect.exe ./capture.pmstream
 ```
 
-`run-as` 仅用于调试构建。导出脚本要求 PowerShell 7，以原始字节写文件，避免文本重定向破坏视频数据。检查器当前验证消息边界和长度，**不验证 H.264 是否可解码**；真机画质和延迟还没有测量。
+`run-as` 仅用于调试构建。导出脚本要求 PowerShell 7，以原始字节写文件，避免文本重定向破坏视频数据。`pm-inspect` 只检查消息边界；实际解码请使用下面的播放器或检查工具。
+
+## 在电脑播放
+
+打开 `PhoneMirror.exe`，点击“打开采集文件”，选择导出的 `.pmstream`。也可以直接指定文件：
+
+```powershell
+./build/PhoneMirror.exe ./capture.pmstream
+./build/pm-playback-check.exe ./capture.pmstream
+./build/pm-playback-check.exe ./capture.pmstream --software
+```
+
+Visual Studio 生成器的程序位于 `build/Release/`。若默认解码失败，勾选“兼容解码”后重新打开文件；兼容模式仍需要支持 NV12 视频处理的 D3D11 显卡，不是完全不依赖 GPU 的显示模式。
+
+命令行检查器会报告输入帧数、解码帧数、GPU 表面帧数和 CPU 帧数。可使用 `--snapshot build/decoded.bmp` 保存最后一帧，仅用于本地诊断，正常播放不会逐帧回读 GPU。
+
+目前播放单个固定尺寸、从关键帧开始的 P0 采集段；拒绝中途更换配置、倒退时间戳、异常长度和缺失关键帧。支持尺寸上限为 4096×4096，时间跨度最多一小时。
+
+已在 iQOO Z9 Turbo / Android 16 的采集文件上验证：134 帧全部解码，GPU 与软件路径最后一帧逐像素一致。**尚未测量实时交互延迟、功耗或广泛设备兼容性。**
 
 ## 文档
 
@@ -76,6 +96,7 @@ APK：`android/app/build/outputs/apk/debug/app-debug.apk`。也可从成功的 A
 - [协议格式和原型范围](protocol/specification.md)
 - [开发进度与下一步](docs/STATUS.md)
 - [真机验证清单](docs/testing.md)
+- [iQOO 采集与解码验证记录](docs/benchmarks/2026-10-22-iqoo-z9-turbo.md)
 
 `scrcpy-project-summary.md` 和 v0.1 文档只保留为历史调研资料，不是当前实现依据。
 

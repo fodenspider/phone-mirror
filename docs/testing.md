@@ -8,7 +8,7 @@
 - Parse every two-part split and byte-at-a-time input; detect truncated messages at EOF.
 - Compile and lint the Android app; do not treat host tests as device compatibility evidence.
 
-## Target device (not yet run)
+## Target device (partially verified; see benchmark record)
 
 Record phone model, Android version, selected hardware encoder, output dimensions and frame count.
 
@@ -18,7 +18,15 @@ Record phone model, Android version, selected hardware encoder, output dimension
 4. Revoke consent using system UI: service ends and reports the reason.
 5. Rotate/change capture aspect ratio: probe ends and requests a fresh capture, rather than claiming correct input coordinates.
 6. Rapidly tap Start and Stop: no overlapping capture ownership or repeated authorization-token use.
-7. Export the file only after capture stops. `pm-inspect` validates framing; a future decoder test must also verify playable AVC.
+7. Export the file only after capture stops. `pm-inspect` validates framing; `pm-playback-check` verifies decode/render in automatic and `--software` modes.
 8. Capture again: previous file is intentionally replaced. No screen contents or input text appear in application logs.
 
 Do not commit actual screen captures. The prototype has no network control surface and does not request accessibility permission yet.
+
+## Windows playback
+
+- Run CTest for framing and capture semantics, including every truncated-message boundary.
+- Decode the same capture normally and with `--software`; compare input/output frame counts and optional final BMP snapshots.
+- `PhoneMirror.exe --smoke capture.pmstream` runs a hidden-window test: full paced playback, resize of final frame, reopen, mid-playback cancellation and clean shutdown. The test exits nonzero on error or a 30-second deadline; use a short capture for this test.
+- Manually verify the visible window, resizing, stop, replay and readable error states before claiming a finished user interface.
+- Do not use private phone captures as public CI fixtures. Hosted CI builds the media backend but has not been assumed to provide a suitable GPU for runtime verification.
