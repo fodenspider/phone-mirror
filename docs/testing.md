@@ -21,7 +21,7 @@ Record phone model, Android version, selected hardware encoder, output dimension
 7. Export the file only after capture stops. `pm-inspect` validates framing; `pm-playback-check` verifies decode/render in automatic and `--software` modes.
 8. Capture again: previous file is intentionally replaced. No screen contents or input text appear in application logs.
 
-Do not commit actual screen captures. The prototype has no network control surface and does not request accessibility permission yet.
+Do not commit actual screen captures. The prototype has no remote gesture/keyboard input and does not request accessibility permission yet.
 
 ## USB live preview
 

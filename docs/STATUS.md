@@ -26,6 +26,9 @@ Updated: 2026-10-22. Milestone: authenticated USB live-preview implementation; r
 
 ## Verified build baseline
 
+- USB preview source at `29e72d7`: Android JVM tests/lint/APK, Windows/MSVC tests and Linux tests all passed in [CI run 39762569499](https://github.com/fodenspider/phone-mirror/actions/runs/39762569499).
+- Local authenticated loopback replay sent the existing capture at its original timestamps: 349 input / 349 decoded frames, all using GPU surfaces, clean STOP. This validates the receiver integration, not live phone capture or end-to-end latency.
+- After the stream-source refactor, the same 349-frame capture still passed GPU/software decoding, identical final-frame comparison and hidden-window resize/reopen/cancel smoke tests.
 - Local Windows MinGW-w64 Release build and CTest passed.
 - Commit `005003e`: GitHub Windows/MSVC and Linux builds/tests passed; Android unit tests, lint and debug APK build passed.
 - [Verified CI run and downloadable development artifacts](https://github.com/fodenspider/phone-mirror/actions/runs/39596351558).
