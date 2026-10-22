@@ -7,8 +7,8 @@ android {
         applicationId = "io.github.fodenspider.phonemirror"
         minSdk = 30
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0-gesture-preview"
+        versionCode = 4
+        versionName = "0.5.0-preview"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

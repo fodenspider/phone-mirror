@@ -17,10 +17,14 @@ class MainActivity : Activity() {
     private var live = false
     private lateinit var control: CheckBox
     private var requestedControl = false
+    private var quality = 1
+    private var requestedQuality = 1
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         live = savedInstanceState?.getBoolean("live") ?: false
         requestedControl = savedInstanceState?.getBoolean("control") ?: false
+        quality = savedInstanceState?.getInt("quality") ?: intent.getIntExtra("quality", 1).coerceIn(0, 2)
+        requestedQuality = savedInstanceState?.getInt("requestedQuality") ?: quality
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 64, 32, 32)
@@ -58,16 +62,23 @@ class MainActivity : Activity() {
             setOnClickListener { refresh() }
         })
         layout.addView(status)
-        setContentView(layout)
+        setContentView(android.widget.ScrollView(this).apply { addView(layout) })
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        quality = intent.getIntExtra("quality", 1).coerceIn(0, 2)
+        refresh()
     }
     override fun onResume() { super.onResume(); refresh() }
     private fun refresh() {
         status.text = if (CaptureService.active) CaptureService.liveStatus
-            else getSharedPreferences("capture", MODE_PRIVATE).getString("status", "尚未采集。")
+            else "下次共享画质：${QualityProfile.fromId(quality).label}\n" + getSharedPreferences("capture", MODE_PRIVATE).getString("status", "尚未采集。")
     }
     private fun authorize(usb: Boolean) {
         if (CaptureService.active) { refresh(); return }
         live = usb
+        requestedQuality = quality
         requestedControl = usb && control.isChecked
         if (requestedControl && GestureControlService.instance == null) {
             status.text = "请先在无障碍设置中开启 Phone Mirror 点击与滑动，或取消控制选项仅投屏。"; return
@@ -80,6 +91,7 @@ class MainActivity : Activity() {
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("live", live); outState.putBoolean("control", requestedControl); super.onSaveInstanceState(outState)
+        outState.putInt("quality", quality); outState.putInt("requestedQuality", requestedQuality)
     }
     @Deprecated("Activity result bridge for dependency-free P0")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -89,6 +101,7 @@ class MainActivity : Activity() {
                 putExtra("resultCode", resultCode); putExtra("projectionData", data)
                 putExtra("live", live)
                 putExtra("control", requestedControl)
+                putExtra("quality", requestedQuality)
             })
             status.text = if (live) "等待电脑连接，请在电脑应用点击“连接手机”。" else "正在启动采集；完成后点击刷新状态。"
         } else if (requestCode == 100) status.text = "未授权，未开始采集。"

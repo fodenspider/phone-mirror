@@ -34,6 +34,7 @@ class CaptureService : Service() {
     private var output: BufferedOutputStream? = null
     private var usb: UsbStreamer? = null
     private var live = false
+    private var quality = QualityProfile.fromId(1)
     private var allowControl = false
     private var stopped = false
     private var frames = 0L
@@ -66,6 +67,7 @@ class CaptureService : Service() {
             Intent(this, CaptureService::class.java).setAction("STOP"),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         live = intent?.getBooleanExtra("live", false) == true
+        quality = QualityProfile.fromId(intent?.getIntExtra("quality", 1) ?: 1)
         allowControl = live && intent?.getBooleanExtra("control", false) == true
         liveStatus = if (live) "等待电脑通过 USB 连接；两分钟未连接会自动结束" else "正在进行 15 秒本地采集"
         val notification = Notification.Builder(this, CHANNEL)
@@ -101,15 +103,15 @@ class CaptureService : Service() {
         projection = manager.getMediaProjection(resultCode, data)
         projection!!.registerCallback(callback, handler)
         val bounds = getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
-        val scale = minOf(1.0, 1280.0 / maxOf(bounds.width(), bounds.height()))
-        width = (bounds.width() * scale).toInt() / 2 * 2
-        height = (bounds.height() * scale).toInt() / 2 * 2
+        val dimensions = quality.dimensions(bounds.width(), bounds.height())
+        width = dimensions.first
+        height = dimensions.second
         captureAspect = width.toDouble() / height
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, 4_000_000)
-            setInteger(MediaFormat.KEY_FRAME_RATE, 30)
-            setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, 30f)
+            setInteger(MediaFormat.KEY_BIT_RATE, quality.bitrate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, quality.fps)
+            setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, quality.fps.toFloat())
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             if (live) setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000L)

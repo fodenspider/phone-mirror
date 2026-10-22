@@ -30,6 +30,10 @@ struct App {
     unsigned guide_step=0;
     bool ui_smoke=false;
     bool preview=false;
+    unsigned render_dpi=0;
+    std::filesystem::path snapshot_path;
+    bool demo=false;
+    unsigned demo_step=0;
     bool pending_auto=false;
     std::filesystem::path pending,smoke_file;
     std::optional<pm::UsbEndpoint> pending_usb;
@@ -43,7 +47,32 @@ struct App {
     ULONGLONG deadline=0,phase_time=0;
     int exit_code=0;
     static std::filesystem::path folder() { wchar_t path[32768]{}; GetModuleFileNameW(nullptr,path,32768); return std::filesystem::path(path).parent_path(); }
-    int px(int value) const { return MulDiv(value,GetDpiForWindow(window),96); }
+    int px(int value) const { return MulDiv(value,render_dpi?render_dpi:GetDpiForWindow(window),96); }
+    bool snapshot() {
+        RECT r{}; GetClientRect(window,&r);
+        BITMAPINFO info{}; info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth=r.right;
+        info.bmiHeader.biHeight=-r.bottom; info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32;
+        void* bits=nullptr; const auto dc=CreateCompatibleDC(nullptr);
+        const auto bitmap=CreateDIBSection(dc,&info,DIB_RGB_COLORS,&bits,nullptr,0);
+        if(!bitmap) { DeleteDC(dc); return false; }
+        const auto old=SelectObject(dc,bitmap); FillRect(dc,&r,background);
+        struct Context {HWND root; HDC dc;}; Context context{window,dc};
+        EnumChildWindows(window,[](HWND child,LPARAM parameter)->BOOL {
+            auto& context=*reinterpret_cast<Context*>(parameter);
+            if(!(GetWindowLongPtrW(child,GWL_STYLE)&WS_VISIBLE)) return TRUE;
+            RECT rect{}; GetWindowRect(child,&rect); MapWindowPoints(nullptr,context.root,reinterpret_cast<POINT*>(&rect),2);
+            const int saved=SaveDC(context.dc); SetViewportOrgEx(context.dc,rect.left,rect.top,nullptr);
+            IntersectClipRect(context.dc,0,0,rect.right-rect.left,rect.bottom-rect.top);
+            SendMessageW(child,WM_PRINT,reinterpret_cast<WPARAM>(context.dc),PRF_CLIENT|PRF_NONCLIENT|PRF_ERASEBKGND);
+            RestoreDC(context.dc,saved); return TRUE;
+        },reinterpret_cast<LPARAM>(&context));
+        GdiFlush();
+        BITMAPFILEHEADER header{}; header.bfType=0x4D42; header.bfOffBits=sizeof(header)+sizeof(BITMAPINFOHEADER);
+        const DWORD size=r.right*r.bottom*4; header.bfSize=header.bfOffBits+size;
+        std::ofstream file(snapshot_path,std::ios::binary); file.write(reinterpret_cast<char*>(&header),sizeof(header));
+        file.write(reinterpret_cast<char*>(&info.bmiHeader),sizeof(BITMAPINFOHEADER)); file.write(static_cast<char*>(bits),size); file.flush();
+        const bool ok=bool(file); SelectObject(dc,old); DeleteObject(bitmap); DeleteDC(dc); return ok;
+    }
     void save_preferences() {
         if(smoke || ui_smoke || preview || preferences_path.empty()) return;
         preferences.software=SendMessageW(compatibility,BM_GETCHECK,0,0)==BST_CHECKED;
@@ -59,7 +88,7 @@ struct App {
         MessageBoxW(window,message.c_str(),L"检查准备情况",MB_OK|MB_ICONINFORMATION);
     }
     void refresh_devices() {
-        if(!finished) return;
+        if(!finished || demo) return;
         if(worker.joinable()) worker.join();
         {std::lock_guard lock(mutex); available_devices.clear();}
         finished=false; screen=pm::ui::Screen::connecting;
@@ -93,11 +122,19 @@ struct App {
         MoveWindow(GetDlgItem(window,10),w-px(128),h-px(64),px(104),px(36),TRUE);
     }
     void refresh_ui() {
-        const auto state=screen.load(); const bool guide=state==pm::ui::Screen::guide;
+        const auto state=screen.load(); const bool guide=state==pm::ui::Screen::guide || demo;
         ShowWindow(description,state==pm::ui::Screen::playing?SW_HIDE:SW_SHOW);
         std::wstring title=L"把手机画面，轻轻放到电脑上";
         std::wstring body=L"连接数据线，点击上方“连接手机”。\r\n\r\n第一次使用？打开“使用指南”，跟随四个步骤完成准备。\r\n\r\n“更多 → 检查准备情况”可检查本机组件。画面只传到本机电脑，不保存录像，鼠标控制需单独授权。";
-        if(guide) { title=pm::ui::steps[guide_step].title; body=pm::ui::steps[guide_step].body; }
+        if(demo) {
+            title=L"离线演示 · 模拟状态（不是手机画面）";
+            constexpr const wchar_t* pages[]={L"1 / 4  准备连接\r\n\r\n真实使用时，连接数据线并点击“连接手机”。程序会查找所选手机。\r\n\r\n此演示不执行任何设备操作。点击下一步体验授权等待。",
+                L"2 / 4  等待授权\r\n\r\n真实使用时，需要在手机确认共享整个屏幕。等待可随时停止，不会跳过系统授权。",
+                L"3 / 4  共享中\r\n\r\n真实使用时，这里显示手机画面。点击与滑动需要另行开启控制权限。\r\n\r\n本页仅说明操作，没有连接手机，也不模拟性能数值。",
+                L"4 / 4  中断与重试\r\n\r\n断线时停止接收画面，选中设备消失时不会切换到其他手机。检查连接后可以重试。\r\n\r\n点击“退出演示”回到首页。"};
+            body=pages[demo_step];
+        }
+        else if(guide) { title=pm::ui::steps[guide_step].title; body=pm::ui::steps[guide_step].body; }
         else if(state==pm::ui::Screen::connecting) { title=L"正在准备"; body=L"请留意窗口上方和手机上的提示。\r\n\r\n点击“停止”可以取消等待，准备好后可以再次尝试。"; }
         else if(state==pm::ui::Screen::error) { title=L"暂时没有完成"; body=L"请按上方提示检查后重试。\r\n\r\n可以打开使用指南，或从“更多”复制不含设备标识的诊断信息。"; }
         else if(state==pm::ui::Screen::stopped) { title=L"已停止"; body=L"此窗口已停止接收画面或等待操作。\r\n\r\n点击“连接手机”可重新开始，每次共享都需要你在手机确认。"; }
@@ -109,18 +146,18 @@ struct App {
         ShowWindow(GetDlgItem(window,8),guide?SW_SHOW:SW_HIDE);
         ShowWindow(GetDlgItem(window,9),guide?SW_SHOW:SW_HIDE);
         ShowWindow(GetDlgItem(window,10),guide?SW_SHOW:SW_HIDE);
-        if(guide) SetWindowTextW(GetDlgItem(window,8),pm::ui::steps[guide_step].action);
-        EnableWindow(GetDlgItem(window,9),guide_step>0);
-        EnableWindow(GetDlgItem(window,10),guide_step+1<pm::ui::steps.size());
-        EnableWindow(GetDlgItem(window,4),finished);
-        EnableWindow(GetDlgItem(window,7),finished);
-        EnableWindow(GetDlgItem(window,2),!finished);
+        if(guide) SetWindowTextW(GetDlgItem(window,8),demo?L"退出演示":pm::ui::steps[guide_step].action);
+        EnableWindow(GetDlgItem(window,9),(demo?demo_step:guide_step)>0);
+        EnableWindow(GetDlgItem(window,10),(demo?demo_step:guide_step)+1<pm::ui::steps.size());
+        EnableWindow(GetDlgItem(window,4),finished && !demo);
+        EnableWindow(GetDlgItem(window,7),finished && !demo);
+        EnableWindow(GetDlgItem(window,2),!finished || demo);
         if(state!=pm::ui::Screen::playing) InvalidateRect(video,nullptr,TRUE);
     }
     void show_guide() { if(!finished) return; screen=pm::ui::Screen::guide; refresh_ui(); }
-    void connect_phone() { pending.clear(); pending_usb.reset(); pending_auto=true; request_stop(); SetTimer(window,1,30,nullptr); }
+    void connect_phone() { if(demo) return; pending.clear(); pending_usb.reset(); pending_auto=true; request_stop(); SetTimer(window,1,30,nullptr); }
     void auxiliary(bool install,std::filesystem::path zip={}) {
-        if(!finished) return; if(worker.joinable()) worker.join();
+        if(!finished || demo) return; if(worker.joinable()) worker.join();
         screen=pm::ui::Screen::connecting; finished=false;
         report(install?L"正在安装手机应用，请留意手机上的确认提示。可点击停止取消等待。":L"正在校验并导入连接组件……");
         SetTimer(window,1,30,nullptr);
@@ -157,6 +194,7 @@ struct App {
         if(client && !client->send_gesture(value)) report(L"控制队列忙，请稍后重试。手机需开启本次控制权限。");
     }
     void open(const std::filesystem::path& path) {
+        demo=false;
         pending_auto=false; pending_usb.reset(); pending=path; request_stop(); SetTimer(window,1,30,nullptr);
     }
     void close() { save_preferences(); closing=true; pending.clear(); request_stop(); SetTimer(window,1,30,nullptr); }
@@ -169,13 +207,13 @@ struct App {
         screen=pm::ui::Screen::connecting;
         report(endpoint?L"正在连接手机 USB 会话……":software?L"正在播放（兼容解码模式）……":L"正在播放（优先使用 GPU 输出）……");
         phase_time=GetTickCount64();
-        worker=std::jthread([this,path,software,endpoint,automatic,selected=selected_device](std::stop_token token) {
+        worker=std::jthread([this,path,software,endpoint,automatic,selected=selected_device,quality=preferences.quality](std::stop_token token) {
             try {
                 auto live_endpoint=endpoint;
                 std::unique_ptr<pm::AdbSession> session;
                 if(automatic) {
                     session=std::make_unique<pm::AdbSession>(pm::AdbSession::locate());
-                    live_endpoint=session->connect(token,[this](std::wstring message) { report(std::move(message)); },selected);
+                    live_endpoint=session->connect(token,[this](std::wstring message) { report(std::move(message)); },selected,quality);
                 }
                 pm::PlaybackOptions options; options.window=video; options.paced=true;
                 options.hold_last_frame=true; options.software=software;
@@ -226,6 +264,13 @@ struct App {
                 SendMessageW(window,WM_COMMAND,16,0);
                 if(!selected_device.empty()) exit_code=1;
                 available_devices.clear();
+                SendMessageW(window,WM_COMMAND,17,0);
+                connect_phone(); refresh_devices();
+                if(!demo || pending_auto || !finished || worker.joinable()) exit_code=1;
+                for(int i=0;i<3;++i) SendMessageW(window,WM_COMMAND,10,0);
+                if(demo_step!=3) exit_code=1;
+                SendMessageW(window,WM_COMMAND,8,0);
+                if(demo) exit_code=1;
                 screen=pm::ui::Screen::error; report(pm::ui::failure("DEVICE_UNAUTHORIZED").message); return;
             }
             close();
@@ -373,7 +418,14 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             AppendMenuW(menu,MF_STRING,12,L"复制诊断信息");
             AppendMenuW(menu,MF_STRING,13,L"关于 Phone Mirror");
             AppendMenuW(menu,MF_STRING,14,L"检查准备情况");
-            AppendMenuW(menu,MF_STRING|(app->finished?0:MF_GRAYED),15,L"刷新手机列表");
+            AppendMenuW(menu,MF_STRING|(app->finished?0:MF_GRAYED),17,L"离线演示（不连接手机）");
+            AppendMenuW(menu,MF_STRING,18,L"版本与下载页面…");
+            AppendMenuW(menu,MF_STRING|(app->finished?0:MF_GRAYED),19,L"恢复默认设置…");
+            const auto quality_menu=CreatePopupMenu();
+            const wchar_t* qualities[]={L"省资源 · 960 / 24 帧",L"均衡 · 1280 / 30 帧",L"清晰 · 1920 / 30 帧"};
+            for(int i=0;i<3;++i) AppendMenuW(quality_menu,MF_STRING|(app->preferences.quality==i?MF_CHECKED:0),30+i,qualities[i]);
+            AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(quality_menu),L"画质（下次连接生效）");
+            AppendMenuW(menu,MF_STRING|(app->finished && !app->demo?0:MF_GRAYED),15,L"刷新手机列表");
             const auto devices_menu=CreatePopupMenu();
             AppendMenuW(devices_menu,MF_STRING|(app->selected_device.empty()?MF_CHECKED:0),16,L"自动选择（仅一台时）");
             {std::lock_guard lock(app->mutex);
@@ -386,6 +438,22 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             AppendMenuW(menu,MF_STRING|(SendMessageW(app->compatibility,BM_GETCHECK,0,0)==BST_CHECKED?MF_CHECKED:0),6,L"兼容解码（下次连接生效）");
             RECT r{}; GetWindowRect(GetDlgItem(window,1),&r);
             TrackPopupMenu(menu,TPM_LEFTALIGN,r.left,r.bottom,0,window,nullptr); DestroyMenu(menu);
+        } else if(LOWORD(wparam)==17 && app->finished) {
+            app->demo=true; app->demo_step=0; app->screen=pm::ui::Screen::home;
+            app->report(L"正在离线演示，没有连接设备。可点击停止或退出演示返回首页。");
+            app->refresh_ui();
+        } else if(LOWORD(wparam)==18) {
+            ShellExecuteW(window,L"open",L"https://github.com/fodenspider/phone-mirror/releases",nullptr,nullptr,SW_SHOWNORMAL);
+        } else if(LOWORD(wparam)>=30 && LOWORD(wparam)<=32) {
+            app->preferences.quality=LOWORD(wparam)-30; app->save_preferences();
+            app->report(L"画质已选择，下次连接生效。请在手机上开始新的共享；当前共享不会被改变。");
+        } else if(LOWORD(wparam)==19 && app->finished) {
+            if(MessageBoxW(window,L"恢复画质、解码、窗口尺寸和引导进度为默认值？不会删除采集文件、连接组件或手机应用。",L"恢复默认设置",MB_YESNO|MB_ICONQUESTION)==IDYES) {
+                app->preferences={}; app->guide_step=0; app->selected_device.clear();
+                SendMessageW(app->compatibility,BM_SETCHECK,BST_UNCHECKED,0);
+                app->save_preferences(); app->report(L"默认设置已恢复，默认窗口尺寸将在下次打开时应用。");
+                app->refresh_ui();
+            }
         } else if(LOWORD(wparam)==15) { app->refresh_devices();
         } else if(LOWORD(wparam)==16 && app->finished) { app->selected_device.clear(); app->report(L"已改为自动选择：仅检测到一台手机时才会连接或安装。");
         } else if(LOWORD(wparam)>=100 && LOWORD(wparam)<228 && app->finished) {
@@ -397,11 +465,15 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
         } else if(LOWORD(wparam)==14) { app->check_preparation();
         } else if(LOWORD(wparam)==7) { app->show_guide();
         } else if(LOWORD(wparam)==9 || LOWORD(wparam)==10) {
+            if(app->demo) { if(LOWORD(wparam)==9 && app->demo_step) --app->demo_step;
+                if(LOWORD(wparam)==10 && app->demo_step<3) ++app->demo_step;
+                app->refresh_ui(); return 0; }
             if(LOWORD(wparam)==9 && app->guide_step) --app->guide_step;
             if(LOWORD(wparam)==10 && app->guide_step+1<pm::ui::steps.size()) ++app->guide_step;
             app->refresh_ui();
             app->save_preferences();
         } else if(LOWORD(wparam)==8) {
+            if(app->demo) { app->demo=false; app->screen=pm::ui::Screen::home; app->report(L"已退出离线演示，可以连接手机。"); app->refresh_ui(); return 0; }
             if(app->guide_step==0) ShellExecuteW(window,L"open",L"https://developer.android.com/tools/releases/platform-tools",nullptr,nullptr,SW_SHOWNORMAL);
             else if(app->guide_step==1) app->auxiliary(true);
             else if(app->guide_step==2) app->connect_phone();
@@ -417,7 +489,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             if(memory) { const auto data=GlobalLock(memory); if(data) { memcpy(data,text.c_str(),(text.size()+1)*sizeof(wchar_t)); GlobalUnlock(memory);
                 if(OpenClipboard(window)) { EmptyClipboard(); if(SetClipboardData(CF_UNICODETEXT,memory)) { CloseClipboard(); return 0; } CloseClipboard(); } } GlobalFree(memory); }
         } else if(LOWORD(wparam)==13) {
-            MessageBoxW(window,L"Phone Mirror 0.4.1 预览版\n\n独立实现的 Android → Windows 投屏工具。\n当前支持 USB 画面；点击与滑动待真机验收。\n预览包尚未使用正式发布签名。",L"关于 Phone Mirror",MB_OK|MB_ICONINFORMATION);
+            MessageBoxW(window,L"Phone Mirror 0.5.0 预览版\n\n独立实现的 Android → Windows 投屏工具。\n当前支持 USB 画面；点击与滑动待真机验收。\n预览包尚未使用正式发布签名。",L"关于 Phone Mirror",MB_OK|MB_ICONINFORMATION);
         } else if(LOWORD(wparam)==6) {
             SendMessageW(app->compatibility,BM_SETCHECK,SendMessageW(app->compatibility,BM_GETCHECK,0,0)==BST_CHECKED?BST_UNCHECKED:BST_CHECKED,0);
             app->save_preferences();
@@ -427,6 +499,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             dialog.lpstrFile=path; dialog.nMaxFile=32768; dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
             if(GetOpenFileNameW(&dialog)) app->open(path);
         } else if(LOWORD(wparam)==2) {
+            if(app->demo) { app->demo=false; app->screen=pm::ui::Screen::home; app->report(L"已退出离线演示。"); app->refresh_ui(); return 0; }
             app->pending_auto=false; app->pending.clear(); app->pending_usb.reset(); app->request_stop(); app->report(L"正在停止共享。");
         } else if(LOWORD(wparam)==4) {
             app->connect_phone();
@@ -455,6 +528,12 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
     app.smoke=argv && argc==3 && std::wstring(argv[1])==L"--smoke";
     app.ui_smoke=argv && argc==2 && std::wstring(argv[1])==L"--ui-smoke";
     app.preview=argv && argc==2 && std::wstring(argv[1])==L"--preview";
+    if(argv && argc==4 && std::wstring(argv[1])==L"--snapshot") {
+        app.preview=true; app.snapshot_path=argv[2];
+        const std::wstring scale=argv[3];
+        app.render_dpi=scale==L"96"?96:scale==L"144"?144:scale==L"192"?192:0;
+        if(!app.render_dpi) { LocalFree(argv); return 2; }
+    }
     if(!app.smoke && !app.ui_smoke && !app.preview) {
         if(const auto local=_wgetenv(L"LOCALAPPDATA")) app.preferences_path=std::filesystem::path(local)/L"PhoneMirror/settings.txt";
         app.preferences=pm::ui::read_preferences(app.preferences_path); app.guide_step=app.preferences.guide_step;
@@ -479,8 +558,14 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
     const int width=std::min<int>(app.px(initial_preferences.width),monitor.rcWork.right-monitor.rcWork.left);
     const int height=std::min<int>(app.px(initial_preferences.height),monitor.rcWork.bottom-monitor.rcWork.top);
     SetWindowPos(window,nullptr,monitor.rcWork.left,monitor.rcWork.top,width,height,SWP_NOZORDER|SWP_NOACTIVATE);
-    ShowWindow(window,(app.smoke || app.ui_smoke)?SW_HIDE:show);
+    ShowWindow(window,(app.smoke || app.ui_smoke || !app.snapshot_path.empty())?SW_HIDE:show);
     app.layout();
+    if(!app.snapshot_path.empty()) {
+        SetWindowPos(window,nullptr,0,0,app.px(720),app.px(820),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+        app.demo=true; app.demo_step=1; app.refresh_ui(); app.layout();
+        SetWindowTextW(app.status,L"离线演示：没有连接设备。可使用下方按钮查看各个步骤。");
+        const bool ok=app.snapshot(); DestroyWindow(window); if(argv) LocalFree(argv); return ok?0:1;
+    }
     if(app.smoke) app.open(app.smoke_file);
     else if(app.ui_smoke) SetTimer(window,1,100,nullptr);
     else if(app.pending_usb) SetTimer(window,1,30,nullptr);

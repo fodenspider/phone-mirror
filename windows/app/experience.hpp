@@ -29,6 +29,6 @@ inline Failure failure(std::string_view code) {
 }
 inline std::wstring diagnostics(const Failure& value) {
     // Deliberately excludes arbitrary exception text, paths, device IDs and credentials.
-    return L"Phone Mirror 0.4.1 preview\r\nWindows desktop\r\nCode: "+std::wstring(value.code.begin(),value.code.end())+L"\r\n";
+    return L"Phone Mirror 0.5.0 preview\r\nWindows desktop\r\nCode: "+std::wstring(value.code.begin(),value.code.end())+L"\r\n";
 }
 }

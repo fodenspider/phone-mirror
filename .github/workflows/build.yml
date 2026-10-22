@@ -57,11 +57,12 @@ jobs:
           Copy-Item $android[0].FullName stage/companion/phone-mirror.apk
           Copy-Item scripts/import-components.ps1 stage/scripts/
           Copy-Item docs/quick-start.md stage/README.md
+          Copy-Item docs/dependencies.md stage/DEPENDENCIES.md
           $stage = (Resolve-Path stage).Path
           $output = (Resolve-Path dist).Path
           & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" "/DStageDir=$stage" "/DOutputDir=$output" packaging/windows/phone-mirror.iss
           if ($LASTEXITCODE) { throw 'Installer build failed' }
-          Compress-Archive stage/* dist/PhoneMirror-0.4.1-preview-portable.zip
+          Compress-Archive stage/* dist/PhoneMirror-0.5.0-preview-portable.zip
       - name: Verify install, startup and uninstall on disposable runner
         shell: pwsh
         run: |
@@ -75,8 +76,15 @@ jobs:
           $p = Start-Process (Join-Path $destination 'PhoneMirror.exe') -ArgumentList '--ui-smoke' -WindowStyle Hidden -PassThru
           if (!$p.WaitForExit(10000)) { $p.Kill(); throw 'UI startup timeout' }
           if ($p.ExitCode) { throw 'UI startup failed' }
+          # Reinstall the same version and preserve per-user preferences.
+          $preferences = Join-Path $env:LOCALAPPDATA 'PhoneMirror/settings.txt'
+          New-Item -ItemType Directory -Force (Split-Path $preferences) | Out-Null
+          Set-Content $preferences 'quality 2'
+          $p = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS',('/DIR="' + $destination + '"')) -WindowStyle Hidden -PassThru -Wait
+          if ($p.ExitCode -or (Get-Content $preferences -Raw).Trim() -ne 'quality 2') { throw 'Reinstall changed preferences' }
           $p = Start-Process (Join-Path $destination 'unins000.exe') -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -WindowStyle Hidden -PassThru -Wait
           if ($p.ExitCode -or (Test-Path (Join-Path $destination 'PhoneMirror.exe'))) { throw 'Uninstall failed' }
+          if ((Get-Content $preferences -Raw).Trim() -ne 'quality 2') { throw 'Uninstall removed user preferences' }
       - name: Write checksums
         shell: pwsh
         run: |

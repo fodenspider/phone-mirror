@@ -101,10 +101,11 @@ std::vector<Device> AdbSession::devices(std::stop_token stop) {
     }
     return result;
 }
-UsbEndpoint AdbSession::connect(std::stop_token stop,std::function<void(std::wstring)> progress,const std::wstring& selected) {
+UsbEndpoint AdbSession::connect(std::stop_token stop,std::function<void(std::wstring)> progress,const std::wstring& selected,int quality) {
+    if(quality<0 || quality>2) throw std::runtime_error("QUALITY_INVALID");
     progress(L"正在查找手机……");
     serial_=select_device(devices(stop),selected);
-    const auto opened=run(adb_,{L"-s",serial_,L"shell",L"am",L"start",L"-n",L"io.github.fodenspider.phonemirror/.MainActivity"},stop);
+    const auto opened=run(adb_,{L"-s",serial_,L"shell",L"am",L"start",L"-f",L"0x20000000",L"-n",L"io.github.fodenspider.phonemirror/.MainActivity",L"--ei",L"quality",std::to_wstring(quality)},stop);
     if(opened.code || opened.text.find("Error")!=std::string::npos) throw std::runtime_error("PHONE_APP_MISSING");
     progress(L"请在手机点击“USB 实时投屏”并允许共享屏幕。此处会自动连接，你也可以点击停止取消。");
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(120);

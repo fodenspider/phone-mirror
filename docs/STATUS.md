@@ -1,3 +1,11 @@
+# 0.5 离线产品完善
+
+本地 11 项 CTest 已通过，覆盖设置恢复、模拟设备/画质传参、离线演示隔离、三种缩放原生绘制、协议和传输。Android 与安装包更新仍需当前提交的远程构建确认。
+
+已补齐三档画质配置到 Android 编码参数的传递、离线演示、设置恢复、版本下载入口、依赖说明及发布门槛。内部绘制的三种缩放界面已目视检查；不替代实际显示器切换。Android 新增画质单元测试，打包新增重装和卸载保留设置检查，远程验收以当前提交 Actions 结果为准。全程未连接手机。
+
+以下为此前阶段记录：
+
 # Development status
 
 Updated: 2026-10-22. Milestone: live-video device baseline verified; novice-oriented desktop connection and gesture preview under validation.

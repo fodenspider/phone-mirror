@@ -12,7 +12,7 @@ public:
     explicit AdbSession(std::filesystem::path adb);
     ~AdbSession();
     std::vector<Device> devices(std::stop_token);
-    UsbEndpoint connect(std::stop_token, std::function<void(std::wstring)> progress,const std::wstring& selected={});
+    UsbEndpoint connect(std::stop_token, std::function<void(std::wstring)> progress,const std::wstring& selected={},int quality=1);
     void install(const std::filesystem::path& apk,std::stop_token,const std::wstring& selected={});
     static std::filesystem::path locate();
     static void install_companion(const std::filesystem::path& apk,std::stop_token,const std::wstring& selected={});
