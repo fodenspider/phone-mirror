@@ -54,6 +54,8 @@ Follow [the product plan](product-plan.md): a novice-friendly, calm native UI wi
 Repository source is original to this project; earlier scrcpy documents are research history only.
 # 2026-10-22：0.4 产品入口与打包进展
 
+0.4.1：新增设置保存/损坏恢复、本机组件与安装包准备检查、可滚动可键盘阅读的说明区、工作区内启动尺寸、安装主要流程中文化。8 项本地测试通过；349 帧离线播放、缩放、重开和取消回归通过。隐藏空闲窗口 10.01 秒采样工作集 13.37 MiB，私有内存 2.46 MiB，CPU 增量在测量精度内为 0；不能替代投屏性能数据。隐藏截图黑图，完整视觉验收仍未完成。未连接手机。
+
 新增四步引导、组件导入、手机应用安装入口、状态页面和安全诊断复制；原生轻量窗口不引入浏览器运行时。
 
 本地 7 项自动测试通过，包含无手机的窗口流程与模拟传输。官方 Platform-Tools 37.0.1 导入及非法摘要拒绝通过。安装包流水线新增隔离安装/启动/卸载验证，远程结果以对应 Actions 运行记录为准。
