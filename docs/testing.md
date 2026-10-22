@@ -23,6 +23,14 @@ Record phone model, Android version, selected hardware encoder, output dimension
 
 Do not commit actual screen captures. The prototype has no network control surface and does not request accessibility permission yet.
 
+## USB live preview
+
+- Android and Windows socket tests exercise authentication, malformed/truncated input, bounded queues and cancellation. CI success does not imply real-device live success.
+- Authorize USB sharing on the phone, then run `scripts/start-usb.ps1 -CheckSeconds 20`. Scroll a non-sensitive page during the test. Record frame counts, dimensions and duration; this is not an end-to-end latency measurement.
+- Authorize again and run `scripts/start-usb.ps1` for visible playback. Check aspect ratio, live motion and window resize, then stop from Windows and verify the phone service stops.
+- In separate sessions, test phone Stop, system revocation, USB disconnection and rotation. Confirm no background restart and that the launcher's forward is removed after receiver exit.
+- Debug APK identity is cached in Actions to support development upgrades. This is not a production signing identity; cache expiry/deletion can require reinstalling the test app. Never use this cache for release keys. Do not uninstall without first preserving needed app-private captures and obtaining user approval.
+
 ## Windows playback
 
 - Run CTest for framing and capture semantics, including every truncated-message boundary.
