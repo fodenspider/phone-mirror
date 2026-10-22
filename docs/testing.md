@@ -21,7 +21,7 @@ Record phone model, Android version, selected hardware encoder, output dimension
 7. Export the file only after capture stops. `pm-inspect` validates framing; `pm-playback-check` verifies decode/render in automatic and `--software` modes.
 8. Capture again: previous file is intentionally replaced. No screen contents or input text appear in application logs.
 
-Do not commit actual screen captures. The prototype has no remote gesture/keyboard input and does not request accessibility permission yet.
+Do not commit actual screen captures. Gesture preview requires a separately enabled accessibility service and per-session control opt-in. It does not implement keyboard/text input.
 
 ## USB live preview
 
@@ -38,3 +38,11 @@ Do not commit actual screen captures. The prototype has no remote gesture/keyboa
 - `PhoneMirror.exe --smoke capture.pmstream` runs a hidden-window test: full paced playback, resize of final frame, reopen, mid-playback cancellation and clean shutdown. The test exits nonzero on error or a 30-second deadline; use a short capture for this test.
 - Manually verify the visible window, resizing, stop, replay and readable error states before claiming a finished user interface.
 - Do not use private phone captures as public CI fixtures. Hosted CI builds the media backend but has not been assumed to provide a suitable GPU for runtime verification.
+
+## Product and control acceptance (pending device availability)
+
+- Desktop default navigation contains Connect, Stop and More; test keyboard navigation, text layout, error recovery and Windows display scaling before final UI approval.
+- `desktop-connection` uses a fake ADB process to cover no-device, unauthorized, multiple-device, missing-app, session preparation and cancellation. It never connects a real phone.
+- `gesture-contract` verifies letterbox rejection, normalized coordinates and a shared Kotlin/C++ fixture. Android tests also reject truncated/invalid commands; socket tests verify full-duplex control delivery.
+- On a phone, verify that controls do nothing unless accessibility and the session checkbox are both enabled; test click, drag-release and wheel in a non-sensitive page. Verify revocation, rotation and disconnect reject subsequent controls. This is not yet verified.
+- Installer setup, stable release signing, companion installation/update, multi-device selection and resource/latency measurements remain release requirements; see product-plan.md.
