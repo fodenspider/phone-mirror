@@ -1,6 +1,6 @@
 # Development status
 
-Updated: 2026-10-22. Milestone: authenticated USB live-preview implementation; real-device live validation pending.
+Updated: 2026-10-22. Milestone: live-video device baseline verified; novice-oriented desktop connection and gesture preview under validation.
 
 ## Implemented
 
@@ -13,14 +13,15 @@ Updated: 2026-10-22. Milestone: authenticated USB live-preview implementation; r
 - Strict capture configuration, sequence, timestamp and initial-IDR validation.
 - Offline framing inspector plus an actual decode/render verification tool.
 - Android user-consented, foreground-service Surface/H.264 capture probe with 15-second and 32-MiB limits.
-- Android loopback-only USB stream with one-time 128-bit authentication, bounded queue and explicit user consent. No LAN listener, remote-control permission or background startup.
+- Android loopback-only USB stream with one-time 128-bit authentication, bounded queue and explicit user consent. No LAN listener or background startup. Gesture control now has a separate accessibility permission and per-session opt-in.
 - Windows cancellable USB receiver and launcher; credential passes through an inherited pipe, forwarding is cleaned up at receiver exit.
 - Build/test workflow and development documentation.
 
 ## Not implemented / not claimed
 
-- USB live code is implemented, but real-device live validation is still pending.
-- No remote gestures, IME, audio or automatic keyframe recovery yet.
+- Real-device live video: 151 received/decoded GPU frames in 20,060 ms at 576×1280. The user subsequently confirmed visible live updates. This is not a latency measurement.
+- Desktop direct connection and gesture controls are implemented but still require later device validation.
+- No verified gesture behavior on a real device yet; no IME, audio or automatic keyframe recovery.
 - No measured device compatibility, latency or power figures.
 - A single device capture has been decoded successfully; permission revocation, broader encoder behavior and other devices still need testing.
 
@@ -40,8 +41,10 @@ Updated: 2026-10-22. Milestone: authenticated USB live-preview implementation; r
 
 ## Next vertical slice
 
-1. Validate USB preview on the connected phone, including clean stop and cable disconnection.
-2. Measure phone-to-display latency and CPU/memory use; add keyframe recovery after congestion.
-3. Add a separately consented accessibility control prototype and test dragging before promising full control.
+Follow [the product plan](product-plan.md): a novice-friendly, calm native UI with no command-line requirement for daily use.
+
+1. Finish desktop connection guidance, installation/update flow, multi-device choice and packaging.
+2. Run automated and simulated-device checks without a connected phone.
+3. Resume real-device control, reconnection, permission and performance tests only when the user says a phone is available.
 
 Repository source is original to this project; earlier scrcpy documents are research history only.

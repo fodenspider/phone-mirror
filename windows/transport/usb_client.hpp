@@ -1,5 +1,6 @@
 #pragma once
 #include "phone_mirror/protocol.hpp"
+#include "phone_mirror/gesture.hpp"
 #include <memory>
 #include <optional>
 #include <stop_token>
@@ -19,6 +20,7 @@ public:
     UsbClient(const UsbClient&) = delete;
     UsbClient& operator=(const UsbClient&) = delete;
     std::optional<Message> next();
+    bool send_gesture(const Gesture&); // thread-safe enqueue; no blocking UI socket writes
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

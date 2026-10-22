@@ -21,6 +21,8 @@ class CaptureService : Service() {
     companion object {
         @Volatile var active = false
         @Volatile var liveStatus = ""
+        @Volatile var controlGrant: Any? = null
+        @Volatile var captureAspect = 0.0
         private const val CHANNEL = "capture"
     }
     private val worker = HandlerThread("capture-probe")
@@ -32,6 +34,7 @@ class CaptureService : Service() {
     private var output: BufferedOutputStream? = null
     private var usb: UsbStreamer? = null
     private var live = false
+    private var allowControl = false
     private var stopped = false
     private var frames = 0L
     private var sequence = 0L
@@ -63,6 +66,7 @@ class CaptureService : Service() {
             Intent(this, CaptureService::class.java).setAction("STOP"),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         live = intent?.getBooleanExtra("live", false) == true
+        allowControl = live && intent?.getBooleanExtra("control", false) == true
         liveStatus = if (live) "等待电脑通过 USB 连接；两分钟未连接会自动结束" else "正在进行 15 秒本地采集"
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
@@ -82,7 +86,9 @@ class CaptureService : Service() {
                                 startCapture(code, data)
                             } catch (e: Exception) { stopCapture("采集失败：${e.javaClass.simpleName}") }
                         }
-                    }, { reason -> handler.post { stopCapture(reason) } })
+                    }, { reason -> handler.post { stopCapture(reason) } }, { gesture ->
+                        GestureControlService.instance?.submit(gesture)
+                    })
                     usb!!.start()
                 } else startCapture(code, data)
             }
@@ -98,6 +104,7 @@ class CaptureService : Service() {
         val scale = minOf(1.0, 1280.0 / maxOf(bounds.width(), bounds.height()))
         width = (bounds.width() * scale).toInt() / 2 * 2
         height = (bounds.height() * scale).toInt() / 2 * 2
+        captureAspect = width.toDouble() / height
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, 4_000_000)
@@ -123,6 +130,7 @@ class CaptureService : Service() {
         display = projection!!.createVirtualDisplay("PhoneMirrorProbe", width, height,
             resources.displayMetrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler)
+        if (allowControl) controlGrant = Any()
         if (!live) handler.postDelayed({ stopCapture("15 秒采集完成") }, 15_000)
         else handler.postDelayed({ stopCapture("预览会话已达一小时，请重新授权") }, 3_600_000)
         handler.post(::drain)
@@ -175,6 +183,7 @@ class CaptureService : Service() {
     }
     private fun stopCapture(reason: String) {
         if (stopped) return
+        controlGrant = null
         stopped = true; handler.removeCallbacksAndMessages(null)
         usb?.finish(Protocol.encode(Protocol.Header(4, streamId = 1, streamEpoch = 1, sequence = sequence)))
         usb = null

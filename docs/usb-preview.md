@@ -1,6 +1,6 @@
 # USB 实时预览 v0.2
 
-本阶段独立实现手机硬件编码 → USB → Windows 解码显示。代码已接通，真机实时测试尚待完成。保留离线采集和播放用于回归，不复用 scrcpy 的代码或协议。
+本阶段独立实现手机硬件编码 → USB → Windows 解码显示。限时真机实时解码已通过；调整分阶段超时后，用户确认可见窗口正常更新。新增桌面内置连接与控制仍待下一轮真机验证。保留离线采集和播放用于回归，不复用 scrcpy 的代码或协议。
 
 ## 建立会话
 
@@ -14,7 +14,7 @@
 
 ## 视频与退出
 
-认证后是 PMIR 消息：`VIDEO_CONFIG` 序号 0，随后完整 H.264 access unit，stream/epoch 均为 1，序号严格连续。编码配置为最长边 1280、30 FPS 上限、4 Mbps、零 B 帧、关键帧间隔 1 秒。静态画面请求每秒重复帧，接收端单包超时 10 秒。
+认证后是 PMIR 消息：`VIDEO_CONFIG` 序号 0，随后完整 H.264 access unit，stream/epoch 均为 1，序号严格连续。编码配置为最长边 1280、30 FPS 上限、4 Mbps、零 B 帧、关键帧间隔 1 秒。静态画面请求每秒重复帧，电脑连接超时 5 秒，认证等待单独计时 10 秒；首次视频包等待 30 秒，此后单包超时 10 秒。不同阶段有独立错误提示。
 
 电脑直接将消息交给已验证的 Media Foundation / D3D11 播放后端，不按文件时间戳额外等待。正常投屏不回读 GPU、不保存录像。CPU 解码兼容路径仍需 D3D11 进行显示。
 
@@ -34,3 +34,13 @@
 Windows 测试覆盖认证字节、分包、错误确认、截断、异常长度、乱序、无效 STOP 和静默连接取消。Android JVM 测试覆盖错误令牌拒绝、正确认证、发送/结束、旧会话文件清理隔离和队列上限/过期。
 
 `pm-live-check` 默认不保存画面，输出输入/解码/GPU/CPU 帧数、尺寸及接收运行时长。限时检查主动取消时可能有少量帧仍在解码器内，因此不同于正常 STOP 排空后的帧数相等检查。帧数和运行时间不能用于推断手机到屏幕的端到端延迟；该项需独立测量。
+
+## 桌面直接连接与控制预览
+
+桌面“连接手机”在后台处理设备识别、打开手机应用、等待共享授权和清理本次端口转发。当前只支持单台手机；正式安装/更新和多设备选择按产品规划继续完善。
+
+新增电脑 → 手机控制消息：PMIR type 30，stream 2 / epoch 1，独立序号从 0 递增；载荷固定 28 字节，依次为 u32 action、x0、y0、x1、y1、durationMs、geometryVersion。action 1 为点击、2 为完成的滑动；坐标归一化到 0..65535，时长 50..500 ms，geometryVersion 固定为 1。点击起终点必须相同。`gesture.hex` 是双端共用测试向量。
+
+电脑黑边不接受手势，缩放按照视频实际显示区域映射。鼠标拖动在松开后执行，不是连续跟手控制。滚轮转换为有限时长滑动。电脑发送队列最多 4 条，超过 500 ms 结束连接；手机同一时刻只执行一条手势，忙时忽略新手势，不积压。
+
+手机必须开启 Phone Mirror 无障碍服务，并在开始本次 USB 投屏前勾选允许控制。未授权、离线或比例已变化时不执行手势。控制服务不读取窗口内容、不记录输入；停止会话后拒绝新手势，已发给系统的单次手势最多继续 500 ms。使用 [Android 官方 dispatchGesture 接口](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService#dispatchGesture(android.accessibilityservice.GestureDescription,%20android.accessibilityservice.AccessibilityService.GestureResultCallback,%20android.os.Handler))。

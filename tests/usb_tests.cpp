@@ -58,6 +58,19 @@ int main() {
             check(!client.next() && !client.next(),"terminal STOP"); check(server.hello_ok,"credential encoding");
         }
         {
+            Server server([](SOCKET peer) {
+                ack(peer);
+                std::array<std::uint8_t,68> command{}; int used=0;
+                while(used<68) { const int n=recv(peer,reinterpret_cast<char*>(command.data())+used,68-used,0); if(n<=0) return; used+=n; }
+                const auto expected=pm::encode(pm::gesture_message({2,{1000,2000},{3000,4000},180},0));
+                if(!std::equal(command.begin(),command.end(),expected.begin(),expected.end())) return;
+                pm::Header stop{pm::Type::stop,0,0,1,1,0,0}; write_all(peer,pm::encode_header(stop));
+            });
+            pm::UsbClient client(server.endpoint());
+            check(client.send_gesture({2,{1000,2000},{3000,4000},180}),"enqueue gesture");
+            check(!client.next(),"full duplex control followed by STOP");
+        }
+        {
             Server server([](SOCKET peer) { send(peer,"BAD00000",8,0); });
             rejected([&] { pm::UsbClient client(server.endpoint()); });
         }

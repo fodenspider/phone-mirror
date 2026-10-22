@@ -1,0 +1,102 @@
+#include "adb_session.hpp"
+#include <windows.h>
+#include <chrono>
+#include <sstream>
+#include <regex>
+#include <thread>
+
+namespace pm {
+namespace {
+struct Handle {
+    HANDLE value=nullptr;
+    ~Handle() { if(value && value!=INVALID_HANDLE_VALUE) CloseHandle(value); }
+};
+std::wstring quote(const std::wstring& s) {
+    std::wstring out=L"\""; unsigned slashes=0;
+    for(wchar_t c:s) {
+        if(c==L'\\') { ++slashes; continue; }
+        out.append(slashes*(c==L'\"'?2:1),L'\\'); slashes=0;
+        if(c==L'\"') out+=L'\\'; out+=c;
+    }
+    out.append(slashes*2,L'\\'); return out+L'\"';
+}
+struct Result { DWORD code; std::string text; };
+Result run(const std::filesystem::path& executable,const std::vector<std::wstring>& args,std::stop_token stop={}) {
+    SECURITY_ATTRIBUTES security{sizeof(security),nullptr,TRUE}; Handle read,write;
+    if(!CreatePipe(&read.value,&write.value,&security,0) || !SetHandleInformation(read.value,HANDLE_FLAG_INHERIT,0))
+        throw std::runtime_error("ADB_PIPE");
+    std::wstring command=quote(executable.wstring());
+    for(const auto& arg:args) command+=L" "+quote(arg);
+    STARTUPINFOW startup{}; startup.cb=sizeof(startup); startup.dwFlags=STARTF_USESTDHANDLES;
+    startup.hStdOutput=startup.hStdError=write.value;
+    PROCESS_INFORMATION pi{};
+    if(!CreateProcessW(executable.c_str(),command.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&pi))
+        throw std::runtime_error("ADB_LAUNCH");
+    Handle process{pi.hProcess},thread{pi.hThread}; CloseHandle(write.value); write.value=nullptr;
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(8);
+    std::string output;
+    for(;;) {
+        DWORD available=0;
+        if(PeekNamedPipe(read.value,nullptr,0,nullptr,&available,nullptr) && available) {
+            char bytes[4096]; DWORD count=0;
+            if(ReadFile(read.value,bytes,std::min<DWORD>(available,sizeof(bytes)),&count,nullptr)) output.append(bytes,count);
+        } else if(WaitForSingleObject(process.value,0)==WAIT_OBJECT_0) break;
+        if(stop.stop_requested() || std::chrono::steady_clock::now()>=deadline || output.size()>65536) {
+            TerminateProcess(process.value,1); WaitForSingleObject(process.value,1000);
+            throw std::runtime_error(stop.stop_requested()?"CANCELLED":"ADB_TIMEOUT");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    DWORD code=1; GetExitCodeProcess(process.value,&code); return {code,output};
+}
+}
+AdbSession::AdbSession(std::filesystem::path adb):adb_(std::move(adb)) {}
+AdbSession::~AdbSession() {
+    if(local_port_) try { run(adb_,{L"-s",serial_,L"forward",L"--remove",L"tcp:"+std::to_wstring(local_port_)}); } catch(...) {}
+}
+std::filesystem::path AdbSession::locate() {
+    wchar_t path[32768]{}; const auto count=GetModuleFileNameW(nullptr,path,32768);
+    if(!count || count>=32768) throw std::runtime_error("ADB_MISSING");
+    const auto base=std::filesystem::path(path).parent_path();
+    for(const auto& candidate:{base/L"platform-tools/adb.exe",base/L"adb.exe",base/L"../.tools/platform-tools/adb.exe",base/L"../../.tools/platform-tools/adb.exe"})
+        if(std::filesystem::is_regular_file(candidate)) return std::filesystem::weakly_canonical(candidate);
+    throw std::runtime_error("ADB_MISSING");
+}
+UsbEndpoint AdbSession::connect(std::stop_token stop,std::function<void(std::wstring)> progress) {
+    progress(L"正在查找手机……");
+    const auto list=run(adb_,{L"devices"},stop);
+    if(list.code) throw std::runtime_error("ADB_LAUNCH");
+    std::istringstream rows(list.text); std::string line; std::vector<std::string> devices; bool unauthorized=false;
+    while(std::getline(rows,line)) {
+        std::istringstream row(line); std::string serial,state; row>>serial>>state;
+        if(state=="device") devices.push_back(serial);
+        if(state=="unauthorized") unauthorized=true;
+    }
+    if(devices.empty()) throw std::runtime_error(unauthorized?"DEVICE_UNAUTHORIZED":"DEVICE_MISSING");
+    if(devices.size()!=1) throw std::runtime_error("DEVICE_MULTIPLE");
+    serial_=std::wstring(devices[0].begin(),devices[0].end());
+    const auto opened=run(adb_,{L"-s",serial_,L"shell",L"am",L"start",L"-n",L"io.github.fodenspider.phonemirror/.MainActivity"},stop);
+    if(opened.code || opened.text.find("Error")!=std::string::npos) throw std::runtime_error("PHONE_APP_MISSING");
+    progress(L"请在手机点击“USB 实时投屏”并允许共享屏幕。此处会自动连接，你也可以点击停止取消。");
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(120);
+    while(!stop.stop_requested() && std::chrono::steady_clock::now()<deadline) {
+        auto response=run(adb_,{L"-s",serial_,L"exec-out",L"run-as",L"io.github.fodenspider.phonemirror",L"cat",L"files/usb-session.json"},stop);
+        if(response.code==0) {
+            const std::regex pattern(R"json(^\s*\{"version":1,"port":([0-9]{1,5}),"token":"([0-9a-f]{32})"\}\s*$)json");
+            std::smatch match;
+            if(!std::regex_match(response.text,match,pattern)) throw std::runtime_error("SESSION_INVALID");
+            const auto port=std::stoul(match[1].str());
+            auto endpoint=usb_endpoint(port,match[2].str());
+            const auto forward=run(adb_,{L"-s",serial_,L"forward",L"tcp:0",L"tcp:"+std::to_wstring(port)},stop);
+            if(forward.code || !std::regex_match(forward.text,std::regex("[0-9]{1,5}\\s*"))) throw std::runtime_error("ADB_FORWARD");
+            local_port_=std::stoul(forward.text);
+            if(!local_port_ || local_port_>65535) throw std::runtime_error("ADB_FORWARD");
+            endpoint.port=static_cast<std::uint16_t>(local_port_);
+            SecureZeroMemory(response.text.data(),response.text.size());
+            return endpoint;
+        }
+        for(int i=0;i<10 && !stop.stop_requested();++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    throw std::runtime_error(stop.stop_requested()?"CANCELLED":"PHONE_CONSENT_TIMEOUT");
+}
+}

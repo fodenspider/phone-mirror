@@ -14,7 +14,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class UsbStreamer(
     private val sessionFile: File,
     private val onConnected: () -> Unit,
-    private val onEnded: (String) -> Unit
+    private val onEnded: (String) -> Unit,
+    private val onGesture: (ControlProtocol.Gesture) -> Unit = {}
 ) : AutoCloseable {
     private val secret = ByteArray(16).also { SecureRandom().nextBytes(it) }
     private val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
@@ -88,8 +89,13 @@ class UsbStreamer(
             authenticated = true
             Thread({
                 try {
-                    val command = client.getInputStream().read()
-                    if (!finishing.get() && !closed.get()) fail(if (command == 4 || command == -1) "电脑已断开" else "不支持的 USB 控制消息")
+                    val input = java.io.DataInputStream(client.getInputStream())
+                    var sequence = 0L
+                    while (!finishing.get() && !closed.get()) {
+                        val gesture = ControlProtocol.read(input, sequence++)
+                        if (gesture == null) { fail("电脑已断开"); break }
+                        onGesture(gesture)
+                    }
                 } catch (_: Exception) { if (!finishing.get()) fail("USB 连接中断") }
             }, "usb-peer-monitor").start()
             onConnected()
