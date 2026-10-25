@@ -25,6 +25,11 @@ int main() {
         check(!wheel.update(60,2000)); scroll=wheel.update(60,2010); check(scroll.has_value());
         wheel.reset(); scroll=wheel.update(-1200,1500);
         check(scroll && scroll->start.y-scroll->end.y<8000);
+        for(unsigned percent:{6u,12u,20u,30u}) {
+            wheel.reset(); auto adjusted=wheel.update(-120,3000,percent);
+            check(adjusted && adjusted->start.y-adjusted->end.y==2*(65535u*percent/200u));
+            check(adjusted->start.y<=65535 && adjusted->end.y<=65535);
+        }
         auto message=pm::gesture_message({2,{1000,2000},{3000,4000},180},7);
         std::ifstream file(std::filesystem::path(u8"" PM_FIXTURE_DIR)/"gesture.hex"); std::string hex; file>>hex;
         if(!file) throw std::runtime_error("cannot read gesture fixture");

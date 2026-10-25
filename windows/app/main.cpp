@@ -314,7 +314,7 @@ LRESULT CALLBACK video_proc(HWND window,UINT message,WPARAM wparam,LPARAM lparam
         if(message==WM_MOUSEWHEEL) {
             POINT p{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(window,&p);
             if(app->point(p.x,p.y)) {
-                if(auto gesture=app->wheel.update(GET_WHEEL_DELTA_WPARAM(wparam),GetTickCount64())) app->gesture(*gesture);
+                if(auto gesture=app->wheel.update(GET_WHEEL_DELTA_WPARAM(wparam),GetTickCount64(),app->preferences.wheel_percent)) app->gesture(*gesture);
             } else app->wheel.reset();
             return 0;
         }
@@ -422,6 +422,11 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             AppendMenuW(menu,MF_STRING|(app->finished?0:MF_GRAYED),17,L"离线演示（不连接手机）");
             AppendMenuW(menu,MF_STRING,18,L"版本与下载页面…");
             AppendMenuW(menu,MF_STRING|(app->finished?0:MF_GRAYED),19,L"恢复默认设置…");
+            const auto wheel_menu=CreatePopupMenu();
+            const int amounts[]={6,12,20,30};
+            const wchar_t* wheel_labels[]={L"小 · 6%",L"标准 · 12%",L"大 · 20%",L"较大 · 30%"};
+            for(int i=0;i<4;++i) AppendMenuW(wheel_menu,MF_STRING|(app->preferences.wheel_percent==amounts[i]?MF_CHECKED:0),60+i,wheel_labels[i]);
+            AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(wheel_menu),L"滚轮幅度（立即生效）");
             const auto quality_menu=CreatePopupMenu();
             const wchar_t* qualities[]={L"省资源 · 960 / 24 帧",L"均衡 · 1280 / 30 帧",L"清晰 · 1920 / 30 帧"};
             for(int i=0;i<3;++i) AppendMenuW(quality_menu,MF_STRING|(app->preferences.quality==i?MF_CHECKED:0),30+i,qualities[i]);
@@ -445,11 +450,16 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             app->refresh_ui();
         } else if(LOWORD(wparam)==18) {
             ShellExecuteW(window,L"open",L"https://github.com/fodenspider/phone-mirror/releases",nullptr,nullptr,SW_SHOWNORMAL);
+        } else if(LOWORD(wparam)>=60 && LOWORD(wparam)<=63) {
+            const int amounts[]={6,12,20,30};
+            app->preferences.wheel_percent=amounts[LOWORD(wparam)-60];
+            app->wheel.reset(); app->save_preferences();
+            app->report(L"滚轮幅度已保存并立即生效。");
         } else if(LOWORD(wparam)>=30 && LOWORD(wparam)<=32) {
             app->preferences.quality=LOWORD(wparam)-30; app->save_preferences();
             app->report(L"画质已选择，下次连接生效。请在手机上开始新的共享；当前共享不会被改变。");
         } else if(LOWORD(wparam)==19 && app->finished) {
-            if(MessageBoxW(window,L"恢复画质、解码、窗口尺寸和引导进度为默认值？不会删除采集文件、连接组件或手机应用。",L"恢复默认设置",MB_YESNO|MB_ICONQUESTION)==IDYES) {
+            if(MessageBoxW(window,L"恢复画质、滚轮幅度、解码、窗口尺寸和引导进度为默认值？不会删除采集文件、连接组件或手机应用。",L"恢复默认设置",MB_YESNO|MB_ICONQUESTION)==IDYES) {
                 app->preferences={}; app->guide_step=0; app->selected_device.clear();
                 SendMessageW(app->compatibility,BM_SETCHECK,BST_UNCHECKED,0);
                 app->save_preferences(); app->report(L"默认设置已恢复，默认窗口尺寸将在下次打开时应用。");

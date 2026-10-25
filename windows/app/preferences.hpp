@@ -13,6 +13,7 @@ struct Preferences {
     int width=720,height=820;
     unsigned guide_step=0;
     int quality=1;
+    int wheel_percent=12;
 };
 inline Preferences read_preferences(const std::filesystem::path& path) {
     Preferences p;
@@ -26,6 +27,7 @@ inline Preferences read_preferences(const std::filesystem::path& path) {
         if(key=="width" && value>=520 && value<=2400) p.width=value;
         if(key=="height" && value>=420 && value<=1800) p.height=value;
         if(key=="guide" && value>=0 && value<4) p.guide_step=static_cast<unsigned>(value);
+        if(key=="wheel" && (value==6 || value==12 || value==20 || value==30)) p.wheel_percent=value;
         if(key=="quality" && value>=0 && value<3) p.quality=value;
     }
     return p;
@@ -36,7 +38,7 @@ inline bool write_preferences(const std::filesystem::path& path,const Preference
     if(ec) return false;
     auto temporary=path; temporary+=L".tmp";
     { std::ofstream file(temporary,std::ios::trunc);
-      file<<"software "<<p.software<<"\nwidth "<<p.width<<"\nheight "<<p.height<<"\nguide "<<p.guide_step<<"\nquality "<<p.quality<<'\n';
+      file<<"software "<<p.software<<"\nwidth "<<p.width<<"\nheight "<<p.height<<"\nguide "<<p.guide_step<<"\nquality "<<p.quality<<"\nwheel "<<p.wheel_percent<<'\n';
       file.flush(); if(!file) return false; }
 #ifdef _WIN32
     return MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;
