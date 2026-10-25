@@ -69,12 +69,18 @@ int main() {
                 pm::Header stop{pm::Type::stop,0,0,1,1,0,0}; write_all(peer,pm::encode_header(stop));
             });
             pm::UsbClient client(server.endpoint());
+            check(!client.supports_touch(),"legacy peer capability");
+            check(!client.send_gesture({3,{1000,2000},{1000,2000},50}),"legacy touch rejected before enqueue");
             check(client.send_gesture({2,{1000,2000},{3000,4000},180}),"enqueue gesture");
             // No next() call: video decoding/presentation must not gate control.
             const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);
             while(!received && std::chrono::steady_clock::now()<deadline) std::this_thread::sleep_for(std::chrono::milliseconds(5));
             check(received,"control must arrive without a video receive call");
             check(!client.next(),"full duplex control followed by STOP");
+        }
+        {
+            Server server([](SOCKET peer) { send(peer,"PMOK0002",8,0); });
+            pm::UsbClient client(server.endpoint()); check(client.supports_touch(),"continuous peer capability");
         }
         {
             Server server([](SOCKET peer) { send(peer,"BAD00000",8,0); });

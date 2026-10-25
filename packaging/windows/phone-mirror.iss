@@ -7,7 +7,7 @@
 [Setup]
 AppId={{46F6FF42-5D82-49AE-8C20-CE112713AD74}
 AppName=Phone Mirror
-AppVersion=0.5.0-preview
+AppVersion=0.6.0-preview
 AppPublisher=Phone Mirror Project
 AppPublisherURL=https://github.com/fodenspider/phone-mirror
 DefaultDirName={localappdata}\Programs\PhoneMirror
@@ -17,7 +17,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputDir}
-OutputBaseFilename=PhoneMirror-0.5.0-preview-setup
+OutputBaseFilename=PhoneMirror-0.6.0-preview-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

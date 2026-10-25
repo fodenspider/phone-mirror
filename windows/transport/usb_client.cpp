@@ -22,7 +22,7 @@ UsbEndpoint usb_endpoint(unsigned port,std::string_view hex) {
 }
 struct UsbClient::Impl {
     SOCKET socket=INVALID_SOCKET;
-    bool wsa=false,ended=false;
+    bool wsa=false,ended=false,touch=false;
     std::stop_token stop;
     std::uint64_t sequence=0;
     using Clock=std::chrono::steady_clock;
@@ -110,11 +110,14 @@ UsbClient::UsbClient(UsbEndpoint endpoint,std::stop_token stop):impl_(std::make_
     if(!sent) return;
     std::array<std::uint8_t,8> ack{};
     if(!p.transfer(ack,false,auth_deadline,"USB authentication response timeout")) return;
-    if(std::memcmp(ack.data(),"PMOK0001",8)) throw ProtocolError("USB authentication response rejected");
+    p.touch=std::memcmp(ack.data(),"PMOK0002",8)==0;
+    if(!p.touch && std::memcmp(ack.data(),"PMOK0001",8)) throw ProtocolError("USB authentication response rejected");
 }
 UsbClient::~UsbClient()=default;
+bool UsbClient::supports_touch() const { return impl_->touch; }
 bool UsbClient::send_gesture(const Gesture& gesture) {
     auto& p=*impl_; std::lock_guard lock(p.command_mutex);
+    if(gesture.action>=3 && !p.touch) return false;
     if(p.stop.stop_requested() || p.command_failed || p.commands.size()>=4) return false;
     p.commands.push_back({encode(gesture_message(gesture,p.command_sequence)),0,Impl::Clock::now()});
     ++p.command_sequence;

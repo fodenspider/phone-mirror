@@ -20,6 +20,7 @@ public:
     UsbClient(const UsbClient&) = delete;
     UsbClient& operator=(const UsbClient&) = delete;
     std::optional<Message> next();
+    bool supports_touch() const;
     bool send_gesture(const Gesture&); // thread-safe immediate nonblocking send; bounded partial-write queue
 private:
     struct Impl;

@@ -32,7 +32,7 @@ class UsbStreamerTest {
                 socket.getOutputStream().write("PMUSB001".toByteArray() + secret)
                 val input = DataInputStream(socket.getInputStream())
                 val ack = ByteArray(8); input.readFully(ack)
-                assertArrayEquals("PMOK0001".toByteArray(), ack)
+                assertArrayEquals("PMOK0002".toByteArray(), ack)
                 assertTrue(connected.await(2, TimeUnit.SECONDS))
                 assertFalse(file.exists())
                 server.offer(byteArrayOf(1, 2), byteArrayOf(3))

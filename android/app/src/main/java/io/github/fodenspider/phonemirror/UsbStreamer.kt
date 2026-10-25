@@ -85,7 +85,7 @@ class UsbStreamer(
             val client = accepted ?: error("USB 会话认证失败")
             server.close(); removeSessionFile(); secret.fill(0)
             client.soTimeout = 0; client.tcpNoDelay = true; client.sendBufferSize = 64 * 1024
-            client.getOutputStream().write("PMOK0001".toByteArray(Charsets.US_ASCII))
+            client.getOutputStream().write("PMOK0002".toByteArray(Charsets.US_ASCII))
             authenticated = true
             Thread({
                 try {

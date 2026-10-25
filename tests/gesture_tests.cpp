@@ -36,6 +36,7 @@ int main() {
         std::vector<std::uint8_t> expected;
         for(std::size_t i=0;i<hex.size();i+=2) expected.push_back(static_cast<std::uint8_t>(std::stoul(hex.substr(i,2),nullptr,16)));
         check(pm::encode(message)==expected);
+        for(unsigned action:{3u,4u,5u}) check(pm::gesture_message({action,{1000,2000},{1000,2000},50},0).payload.size()==28);
         bool rejected=false; try { pm::gesture_message({1,{0,0},{1,0},50},0); } catch(const pm::ProtocolError&) { rejected=true; }
         check(rejected);
         std::cout<<"Gesture coordinates and wire contract passed\n";

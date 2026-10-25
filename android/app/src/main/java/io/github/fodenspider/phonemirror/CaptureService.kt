@@ -186,6 +186,7 @@ class CaptureService : Service() {
     private fun stopCapture(reason: String) {
         if (stopped) return
         controlGrant = null
+        GestureControlService.instance?.releaseTouch()
         stopped = true; handler.removeCallbacksAndMessages(null)
         usb?.finish(Protocol.encode(Protocol.Header(4, streamId = 1, streamEpoch = 1, sequence = sequence)))
         usb = null

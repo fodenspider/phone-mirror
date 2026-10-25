@@ -37,8 +37,8 @@ inline std::optional<Point> map_pointer(int x,int y,int vw,int vh,unsigned sw,un
         std::uint32_t(std::uint64_t(y-top)*65535/(bottom-top-1))};
 }
 inline Message gesture_message(const Gesture& g,std::uint64_t sequence) {
-    if((g.action!=1 && g.action!=2) || g.start.x>65535 || g.start.y>65535 || g.end.x>65535 || g.end.y>65535 ||
-        g.duration_ms<50 || g.duration_ms>500 || (g.action==1 && (g.start.x!=g.end.x || g.start.y!=g.end.y)))
+    if((g.action<1 || g.action>5) || g.start.x>65535 || g.start.y>65535 || g.end.x>65535 || g.end.y>65535 ||
+        g.duration_ms<50 || g.duration_ms>500 || (g.action!=2 && (g.start.x!=g.end.x || g.start.y!=g.end.y)))
         throw ProtocolError("invalid gesture");
     Message m; m.header={Type::pointer_action,0,28,2,1,sequence,0};
     for(auto value:{g.action,g.start.x,g.start.y,g.end.x,g.end.y,g.duration_ms,1u})

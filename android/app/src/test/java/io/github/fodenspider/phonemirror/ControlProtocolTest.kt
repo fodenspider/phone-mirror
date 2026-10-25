@@ -14,6 +14,16 @@ class ControlProtocolTest {
         assertNull(read(byteArrayOf(4)))
         assertNull(read(byteArrayOf()))
     }
+    @Test fun continuousActionsUseSinglePosition() {
+        for(action in 3..5) {
+            val bytes=fixture()
+            val b=java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.BIG_ENDIAN)
+            b.putInt(40,action); b.putInt(52,1000); b.putInt(56,2000)
+            assertEquals(action,read(bytes)!!.action)
+            b.putInt(52,1001)
+            assertThrows(IllegalArgumentException::class.java) { read(bytes) }
+        }
+    }
     @Test fun rejectsOrderingLengthsCoordinatesAndTruncation() {
         val good = fixture()
         assertThrows(IllegalArgumentException::class.java) { read(good, 0) }

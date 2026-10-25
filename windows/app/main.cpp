@@ -42,6 +42,8 @@ struct App {
     std::optional<pm::Point> drag_start;
     ULONGLONG drag_time=0;
     pm::WheelControl wheel;
+    bool touch_active=false;
+    pm::Point touch_point;
     std::atomic<bool> finished{true},completed{false},failed{false};
     bool closing=false,smoke=false;
     unsigned smoke_phase=0;
@@ -183,7 +185,14 @@ struct App {
         { std::lock_guard lock(mutex); text=std::move(value); }
         PostMessageW(window,status_message,0,0);
     }
-    void request_stop() { drag_start.reset(); wheel.reset(); if(worker.joinable()) worker.request_stop(); }
+    bool continuous_touch() {
+        std::lock_guard lock(mutex); return live_client && live_client->supports_touch();
+    }
+    void end_touch() {
+        if(touch_active) { touch_active=false; gesture({5,touch_point,touch_point,50}); }
+        KillTimer(video,2);
+    }
+    void request_stop() { end_touch(); drag_start.reset(); wheel.reset(); if(worker.joinable()) worker.request_stop(); }
     std::optional<pm::Point> point(int x,int y) {
         RECT r{}; GetClientRect(video,&r); std::lock_guard lock(mutex);
         if(!live_client) return std::nullopt;
@@ -224,7 +233,7 @@ struct App {
                     options.on_progress=[this](const pm::PlaybackStats& s) {
                         screen=pm::ui::Screen::playing;
                         { std::lock_guard lock(mutex); video_width=s.width; video_height=s.height; }
-                        report(L"USB 已显示 "+std::to_wstring(s.decoded_frames)+L" 帧。控制需手机授权：左键点击、拖动松开滑动、滚轮滚动。");
+                        report(L"USB 已显示 "+std::to_wstring(s.decoded_frames)+L" 帧。控制需手机授权：左键点击与拖动、滚轮滚动；长按和跟手拖动需要新版手机应用。");
                     };
                     auto client=std::make_shared<pm::UsbClient>(*live_endpoint,token);
                     { std::lock_guard lock(mutex); live_client=client; }
@@ -298,27 +307,45 @@ LRESULT CALLBACK video_proc(HWND window,UINT message,WPARAM wparam,LPARAM lparam
     if(app) {
         if(message==WM_LBUTTONDOWN) {
             app->drag_start=app->point(GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam));
-            if(app->drag_start) { app->drag_time=GetTickCount64(); SetCapture(window); SetFocus(window); }
+            if(app->drag_start) {
+                app->drag_time=GetTickCount64(); SetCapture(window); SetFocus(window);
+                if(app->continuous_touch()) {
+                    app->touch_active=true; app->touch_point=*app->drag_start;
+                    app->gesture({3,app->touch_point,app->touch_point,50}); SetTimer(window,2,50,nullptr);
+                }
+            }
             return 0;
         }
         if(message==WM_LBUTTONUP) {
             const auto start=app->drag_start;
             const auto end=app->point(GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam));
-            app->drag_start.reset(); ReleaseCapture();
-            if(start && end) {
+            const bool continuous=app->touch_active;
+            if(continuous && end) app->touch_point=*end;
+            app->end_touch(); app->drag_start.reset(); ReleaseCapture();
+            if(!continuous && start && end) {
                 const bool tap=std::abs(int(start->x)-int(end->x))<500 && std::abs(int(start->y)-int(end->y))<500;
                 app->gesture({tap?1u:2u,*start,tap?*start:*end,tap?50u:static_cast<unsigned>(std::clamp<ULONGLONG>(GetTickCount64()-app->drag_time,80,300))});
             }
             return 0;
         }
+        if(message==WM_MOUSEMOVE && app->touch_active) {
+            if(auto point=app->point(GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam))) app->touch_point=*point;
+            else { app->end_touch(); app->drag_start.reset(); ReleaseCapture(); }
+            return 0;
+        }
+        if(message==WM_TIMER && wparam==2) {
+            if(app->touch_active) app->gesture({4,app->touch_point,app->touch_point,50});
+            return 0;
+        }
         if(message==WM_MOUSEWHEEL) {
+            if(app->touch_active) return 0;
             POINT p{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(window,&p);
             if(app->point(p.x,p.y)) {
                 if(auto gesture=app->wheel.update(GET_WHEEL_DELTA_WPARAM(wparam),GetTickCount64(),app->preferences.wheel_percent)) app->gesture(*gesture);
             } else app->wheel.reset();
             return 0;
         }
-        if(message==WM_CAPTURECHANGED || message==WM_SIZE) app->drag_start.reset();
+        if(message==WM_CAPTURECHANGED || message==WM_SIZE || message==WM_KILLFOCUS) { app->end_touch(); app->drag_start.reset(); }
     }
     if(message==WM_CTLCOLORSTATIC && app) {
         SetBkColor(reinterpret_cast<HDC>(wparam),RGB(255,255,255));
@@ -500,7 +527,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             if(memory) { const auto data=GlobalLock(memory); if(data) { memcpy(data,text.c_str(),(text.size()+1)*sizeof(wchar_t)); GlobalUnlock(memory);
                 if(OpenClipboard(window)) { EmptyClipboard(); if(SetClipboardData(CF_UNICODETEXT,memory)) { CloseClipboard(); return 0; } CloseClipboard(); } } GlobalFree(memory); }
         } else if(LOWORD(wparam)==13) {
-            MessageBoxW(window,L"Phone Mirror 0.5.0 预览版\n\n独立实现的 Android → Windows 投屏工具。\n当前支持 USB 画面；点击与滑动待真机验收。\n预览包尚未使用正式发布签名。",L"关于 Phone Mirror",MB_OK|MB_ICONINFORMATION);
+            MessageBoxW(window,L"Phone Mirror 0.6.0 预览版\n\n独立实现的 Android → Windows 投屏工具。\n当前支持 USB 画面；长按与连续拖动待真机验收。\n预览包尚未使用正式发布签名。",L"关于 Phone Mirror",MB_OK|MB_ICONINFORMATION);
         } else if(LOWORD(wparam)==6) {
             SendMessageW(app->compatibility,BM_SETCHECK,SendMessageW(app->compatibility,BM_GETCHECK,0,0)==BST_CHECKED?BST_UNCHECKED:BST_CHECKED,0);
             app->save_preferences();
