@@ -111,7 +111,10 @@ UsbEndpoint AdbSession::connect(std::stop_token stop,std::function<void(std::wst
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(120);
     while(!stop.stop_requested() && std::chrono::steady_clock::now()<deadline) {
         auto response=run(adb_,{L"-s",serial_,L"exec-out",L"run-as",L"io.github.fodenspider.phonemirror",L"cat",L"files/usb-session.json"},stop);
-        if(response.code==0) {
+        // Some adb exec-out transports return success even when remote cat reports
+        // a missing file. Until consent creates a JSON descriptor, keep waiting.
+        const auto first=response.text.find_first_not_of(" \t\r\n");
+        if(response.code==0 && first!=std::string::npos && response.text[first]=='{') {
             const std::regex pattern(R"json(^\s*\{"version":1,"port":([0-9]{1,5}),"token":"([0-9a-f]{32})"\}\s*$)json");
             std::smatch match;
             if(!std::regex_match(response.text,match,pattern)) throw std::runtime_error("SESSION_INVALID");

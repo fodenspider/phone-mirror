@@ -341,7 +341,8 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
     switch(message) {
     case WM_NCCREATE:
         app=static_cast<App*>(reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams);
-        app->window=window; SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(app)); return TRUE;
+        app->window=window; SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(app));
+        return DefWindowProcW(window,message,wparam,lparam);
     case WM_CREATE:
         DeleteObject(app->font); app->font=CreateFontW(-app->px(17),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Microsoft YaHei UI");
         CreateWindowW(L"STATIC",L"Phone Mirror  ·  让手机与你的电脑相连",WS_CHILD|WS_VISIBLE,

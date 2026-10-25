@@ -32,7 +32,7 @@ int main(int argc,char** argv) {
             return 0;
         }
         if(operation=="exec-out") {
-            if(mode=="waiting") return 1;
+            if(mode=="waiting") { std::cout<<"cat: files/usb-session.json: No such file or directory\n"; return 0; }
             std::cout<<"{\"version\":1,\"port\":1234,\"token\":\"11111111111111111111111111111111\"}"; return 0;
         }
         if(operation=="forward") { if(argc>4 && std::string(argv[4])!="--remove") std::cout<<"4321\n"; return 0; }
