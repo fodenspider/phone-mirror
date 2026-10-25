@@ -20,7 +20,7 @@ public:
     UsbClient(const UsbClient&) = delete;
     UsbClient& operator=(const UsbClient&) = delete;
     std::optional<Message> next();
-    bool send_gesture(const Gesture&); // thread-safe enqueue; no blocking UI socket writes
+    bool send_gesture(const Gesture&); // thread-safe immediate nonblocking send; bounded partial-write queue
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

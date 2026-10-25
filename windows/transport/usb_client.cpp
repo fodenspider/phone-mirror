@@ -30,6 +30,7 @@ struct UsbClient::Impl {
     std::mutex command_mutex;
     std::deque<Command> commands;
     std::uint64_t command_sequence=0;
+    bool command_failed=false;
     explicit Impl(std::stop_token token):stop(token) {
         WSADATA data{};
         if(WSAStartup(MAKEWORD(2,2),&data)) throw ProtocolError("Winsock startup failed");
@@ -56,6 +57,10 @@ struct UsbClient::Impl {
     }
     void pump_commands() {
         std::lock_guard lock(command_mutex);
+        pump_commands_locked();
+    }
+    void pump_commands_locked() {
+        if(command_failed) throw ProtocolError("USB control send failed");
         while(!commands.empty()) {
             auto& c=commands.front();
             if(Clock::now()-c.created>std::chrono::milliseconds(500)) throw ProtocolError("USB control queue timeout");
@@ -110,9 +115,14 @@ UsbClient::UsbClient(UsbEndpoint endpoint,std::stop_token stop):impl_(std::make_
 UsbClient::~UsbClient()=default;
 bool UsbClient::send_gesture(const Gesture& gesture) {
     auto& p=*impl_; std::lock_guard lock(p.command_mutex);
-    if(p.stop.stop_requested() || p.commands.size()>=4) return false;
+    if(p.stop.stop_requested() || p.command_failed || p.commands.size()>=4) return false;
     p.commands.push_back({encode(gesture_message(gesture,p.command_sequence)),0,Impl::Clock::now()});
-    ++p.command_sequence; return true;
+    ++p.command_sequence;
+    // The socket is nonblocking. Send now, even while the video worker is
+    // decoding/presenting; only a partial write remains for its next pump.
+    try { p.pump_commands_locked(); }
+    catch(const ProtocolError&) { p.command_failed=true; return false; }
+    return true;
 }
 std::optional<Message> UsbClient::next() {
     auto& p=*impl_;

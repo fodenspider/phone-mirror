@@ -6,6 +6,25 @@
 namespace pm {
 struct Point { std::uint32_t x=0,y=0; };
 struct Gesture { std::uint32_t action=1; Point start,end; std::uint32_t duration_ms=50; };
+// Accumulate high-resolution wheel deltas; a notch moves 12% of the screen.
+// Limit bursts rather than replaying a delayed queue after scrolling stops.
+class WheelControl {
+    int pending_=0;
+    std::optional<std::uint64_t> last_,input_;
+public:
+    void reset() { pending_=0; last_.reset(); input_.reset(); }
+    std::optional<Gesture> update(int delta,std::uint64_t now_ms) {
+        if(!delta) return std::nullopt;
+        if(input_ && now_ms-*input_>250) pending_=0;
+        input_=now_ms;
+        if((pending_>0 && delta<0) || (pending_<0 && delta>0)) pending_=0;
+        pending_=std::clamp(pending_+std::clamp(delta,-120,120),-120,120);
+        if(pending_>-120 && pending_<120) return std::nullopt;
+        if(last_ && now_ms-*last_<180) return std::nullopt;
+        const bool down=pending_<0; pending_=0; last_=now_ms;
+        return Gesture{2,{32768,down?36700u:28836u},{32768,down?28836u:36700u},140};
+    }
+};
 // Reject black bars. Uses the same integer letterbox rectangle as the renderer.
 inline std::optional<Point> map_pointer(int x,int y,int vw,int vh,unsigned sw,unsigned sh) {
     if(vw<=0 || vh<=0 || !sw || !sh) return std::nullopt;

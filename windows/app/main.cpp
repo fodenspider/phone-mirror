@@ -40,7 +40,8 @@ struct App {
     std::shared_ptr<pm::UsbClient> live_client;
     unsigned video_width=0,video_height=0;
     std::optional<pm::Point> drag_start;
-    ULONGLONG drag_time=0,last_wheel=0;
+    ULONGLONG drag_time=0;
+    pm::WheelControl wheel;
     std::atomic<bool> finished{true},completed{false},failed{false};
     bool closing=false,smoke=false;
     unsigned smoke_phase=0;
@@ -182,7 +183,7 @@ struct App {
         { std::lock_guard lock(mutex); text=std::move(value); }
         PostMessageW(window,status_message,0,0);
     }
-    void request_stop() { drag_start.reset(); if(worker.joinable()) worker.request_stop(); }
+    void request_stop() { drag_start.reset(); wheel.reset(); if(worker.joinable()) worker.request_stop(); }
     std::optional<pm::Point> point(int x,int y) {
         RECT r{}; GetClientRect(video,&r); std::lock_guard lock(mutex);
         if(!live_client) return std::nullopt;
@@ -312,10 +313,9 @@ LRESULT CALLBACK video_proc(HWND window,UINT message,WPARAM wparam,LPARAM lparam
         }
         if(message==WM_MOUSEWHEEL) {
             POINT p{GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; ScreenToClient(window,&p);
-            if(app->point(p.x,p.y) && GetTickCount64()-app->last_wheel>=250) {
-                app->last_wheel=GetTickCount64(); const bool down=GET_WHEEL_DELTA_WPARAM(wparam)<0;
-                app->gesture({2,{32768,down?45875u:19660u},{32768,down?19660u:45875u},180});
-            }
+            if(app->point(p.x,p.y)) {
+                if(auto gesture=app->wheel.update(GET_WHEEL_DELTA_WPARAM(wparam),GetTickCount64())) app->gesture(*gesture);
+            } else app->wheel.reset();
             return 0;
         }
         if(message==WM_CAPTURECHANGED || message==WM_SIZE) app->drag_start.reset();
