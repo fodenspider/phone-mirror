@@ -17,3 +17,11 @@ The companion acknowledges authentication with PMOK0002 to advertise continuous 
 ## Validation status
 
 Protocol and capability regression plus pure Kotlin touch lease tests cover ordering, latest target, end, expiry and revocation. Real service continuation, long press, cancellation and system service disable must still be checked on a phone. The capability marker does not claim device acceptance. No screen content or touch coordinates are logged or published.
+
+## 2026-10-25 build and installation
+
+Commit `f4fd1ee` passed Windows, Linux, Android unit tests/lint and packaging in [CI 40192522679](https://github.com/fodenspider/phone-mirror/actions/runs/40192522679). Local desktop CTest passed all 11 checks.
+
+Initial USB installation and file transfer timed out. After the user changed the connection, a 64 KiB probe passed its hash check, followed by the full APK transfer in 0.39 seconds with matching SHA-256. Android then rejected the update for signature mismatch. Under the user's existing replacement-install authorization, the application's own data was backed up and the old preview replaced. The device reports versionCode 5 / 0.6.0-preview. No other applications or their data were touched. Stable signing remains a release blocker; the cached development identity did not provide a compatible update in this test.
+
+Continuous touch and long-press device acceptance is pending the user's result; installation and compilation do not establish that the gestures behave correctly on the phone.
