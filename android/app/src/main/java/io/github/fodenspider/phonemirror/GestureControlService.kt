@@ -89,6 +89,13 @@ class GestureControlService : AccessibilityService() {
         // On revocation only lift at the last position; never inject new motion.
         val nextX = if (authorized && !touch.cancelled) x(touch.x) else lastX
         val nextY = if (authorized && !touch.cancelled) y(touch.y) else lastY
+        // A stationary continuation with willContinue=true produces no motion
+        // events in Android's injector and is rejected. Keep the existing pointer
+        // down, checking its lease without dispatching another gesture.
+        if (stroke != null && !ending && nextX == lastX && nextY == lastY) {
+            main.postDelayed({ advanceTouch() }, 16)
+            return
+        }
         try {
             val path = Path().apply { moveTo(lastX, lastY); if(nextX != lastX || nextY != lastY) lineTo(nextX, nextY) }
             val next = stroke?.continueStroke(path, 0, 32, !ending)

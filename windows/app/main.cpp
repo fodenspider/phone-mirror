@@ -538,7 +538,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wparam,LPARAM lpara
             if(memory) { const auto data=GlobalLock(memory); if(data) { memcpy(data,text.c_str(),(text.size()+1)*sizeof(wchar_t)); GlobalUnlock(memory);
                 if(OpenClipboard(window)) { EmptyClipboard(); if(SetClipboardData(CF_UNICODETEXT,memory)) { CloseClipboard(); return 0; } CloseClipboard(); } } GlobalFree(memory); }
         } else if(LOWORD(wparam)==13) {
-            MessageBoxW(window,L"Phone Mirror 0.6.0 预览版\n\n独立实现的 Android → Windows 投屏工具。\n当前支持 USB 画面；长按与连续拖动待真机验收。\n预览包尚未使用正式发布签名。",L"关于 Phone Mirror",MB_OK|MB_ICONINFORMATION);
+            MessageBoxW(window,L"Phone Mirror 0.6.1 预览版\n\n独立实现的 Android → Windows 投屏工具。\n当前支持 USB 画面；长按与连续拖动待真机验收。\n预览包尚未使用正式发布签名。",L"关于 Phone Mirror",MB_OK|MB_ICONINFORMATION);
         } else if(LOWORD(wparam)==6) {
             SendMessageW(app->compatibility,BM_SETCHECK,SendMessageW(app->compatibility,BM_GETCHECK,0,0)==BST_CHECKED?BST_UNCHECKED:BST_CHECKED,0);
             app->save_preferences();

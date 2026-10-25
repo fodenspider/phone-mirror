@@ -17,6 +17,16 @@ class TouchLeaseTest {
         assertFalse(state.accept(4,90,90,651))
         state.clear(); assertTrue(state.accept(3,1,2,700))
     }
+    @Test fun stationaryHeartbeatKeepsLeaseUntilExplicitRelease() {
+        val state=TouchLease(); state.accept(3,10,20,0)
+        for(time in 50L..2000L step 50) {
+            assertTrue(state.accept(4,10,20,time))
+            assertFalse(state.mustEnd(time,true))
+            assertEquals(10,state.x); assertEquals(20,state.y)
+        }
+        assertTrue(state.accept(5,10,20,2050))
+        assertTrue(state.mustEnd(2050,true)); assertFalse(state.cancelled)
+    }
     @Test fun expiresAndRevokes() {
         for (revoked in listOf(false,true)) {
             val state = TouchLease(); state.accept(3,1,2,1000)

@@ -62,7 +62,7 @@ jobs:
           $output = (Resolve-Path dist).Path
           & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" "/DStageDir=$stage" "/DOutputDir=$output" packaging/windows/phone-mirror.iss
           if ($LASTEXITCODE) { throw 'Installer build failed' }
-          Compress-Archive stage/* dist/PhoneMirror-0.6.0-preview-portable.zip
+          Compress-Archive stage/* dist/PhoneMirror-0.6.1-preview-portable.zip
       - name: Verify install, startup and uninstall on disposable runner
         shell: pwsh
         run: |
