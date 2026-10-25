@@ -6,6 +6,12 @@
 namespace pm {
 struct Point { std::uint32_t x=0,y=0; };
 struct Gesture { std::uint32_t action=1; Point start,end; std::uint32_t duration_ms=50; };
+// A short stationary click never enters a held-touch session.
+inline bool begins_continuous_touch(Point start,Point current,std::uint64_t held_ms) {
+    const auto dx=start.x>current.x?start.x-current.x:current.x-start.x;
+    const auto dy=start.y>current.y?start.y-current.y:current.y-start.y;
+    return dx>=500 || dy>=500 || held_ms>=500;
+}
 // Accumulate high-resolution wheel deltas; a notch moves a bounded fraction of the screen.
 // Limit bursts rather than replaying a delayed queue after scrolling stops.
 class WheelControl {

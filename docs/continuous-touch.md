@@ -2,7 +2,7 @@
 
 ## Behavior
 
-With a 0.6 desktop and companion, left-button down begins touch immediately, pointer updates follow at up to 20 Hz, and button up ends it. Holding stationary enables Android long-press behavior. Wheel gestures remain bounded completed swipes and are suppressed during a held touch. Four saved wheel travel settings remain available.
+With a 0.6 desktop and companion, short stationary clicks use the completed-tap path. Held touch starts only after movement exceeds the normalized 500-unit slop or a stationary hold reaches 500 ms; pointer updates then follow at up to 20 Hz, and button up requests release. Holding stationary enables Android long-press behavior after this intent threshold. Wheel gestures remain bounded completed swipes and are suppressed during a held touch. Four saved wheel travel settings remain available.
 
 Android uses StrokeDescription.continueStroke with 32 ms segments, preserving the previous segment endpoint. Only the latest target is used. A 500 ms heartbeat expiry releases the touch; stop sharing, loss of the session grant, capture loss, leaving the image, focus loss and resizing also request release. These are scheduling bounds, not a measured device response guarantee. Service disable relies on Android cancelling the disconnected service's injected gestures and remains a device acceptance item.
 
@@ -25,3 +25,9 @@ Commit `f4fd1ee` passed Windows, Linux, Android unit tests/lint and packaging in
 Initial USB installation and file transfer timed out. After the user changed the connection, a 64 KiB probe passed its hash check, followed by the full APK transfer in 0.39 seconds with matching SHA-256. Android then rejected the update for signature mismatch. Under the user's existing replacement-install authorization, the application's own data was backed up and the old preview replaced. The device reports versionCode 5 / 0.6.0-preview. No other applications or their data were touched. Stable signing remains a release blocker; the cached development identity did not provide a compatible update in this test.
 
 Continuous touch and long-press device acceptance is pending the user's result; installation and compilation do not establish that the gestures behave correctly on the phone.
+
+## Device regression and tap isolation
+
+The user reported that even a short click became a long press with the initial continuous-touch build. Continuous-touch acceptance therefore failed; the underlying continuation/release behavior is not yet proven correct on this device.
+
+A desktop follow-up keeps short stationary clicks out of the held-touch protocol, reserving it for deliberate movement or a hold of at least 500 ms. This avoids relying on continued-stroke release for ordinary clicks; it does not establish the underlying long-press issue's root cause. Local 11-test CTest passed (6.94 seconds), including intent threshold boundaries. The window is labelled “单击修正版” to distinguish the candidate from still-open older builds. The user confirmed ordinary clicks are now normal and no longer become long presses. Long press and drag release remain unaccepted.

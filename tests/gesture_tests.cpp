@@ -15,6 +15,10 @@ int main() {
         const auto last=pm::map_pointer(575,1279,576,1280,576,1280);
         check(first && first->x==0 && first->y==0 && last && last->x==65535 && last->y==65535);
         check(!pm::map_pointer(576,1280,576,1280,576,1280));
+        check(!pm::begins_continuous_touch({1000,2000},{1000,2000},0));
+        check(!pm::begins_continuous_touch({1000,2000},{1499,2499},499));
+        check(pm::begins_continuous_touch({1000,2000},{1500,2000},10));
+        check(pm::begins_continuous_touch({1000,2000},{1000,2000},500));
         pm::WheelControl wheel;
         check(!wheel.update(30,1000)); check(!wheel.update(30,1010)); check(!wheel.update(30,1020));
         auto scroll=wheel.update(30,1030);

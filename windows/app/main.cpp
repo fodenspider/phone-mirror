@@ -310,8 +310,8 @@ LRESULT CALLBACK video_proc(HWND window,UINT message,WPARAM wparam,LPARAM lparam
             if(app->drag_start) {
                 app->drag_time=GetTickCount64(); SetCapture(window); SetFocus(window);
                 if(app->continuous_touch()) {
-                    app->touch_active=true; app->touch_point=*app->drag_start;
-                    app->gesture({3,app->touch_point,app->touch_point,50}); SetTimer(window,2,50,nullptr);
+                    app->touch_point=*app->drag_start;
+                    SetTimer(window,2,50,nullptr);
                 }
             }
             return 0;
@@ -328,12 +328,23 @@ LRESULT CALLBACK video_proc(HWND window,UINT message,WPARAM wparam,LPARAM lparam
             }
             return 0;
         }
-        if(message==WM_MOUSEMOVE && app->touch_active) {
-            if(auto point=app->point(GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam))) app->touch_point=*point;
-            else { app->end_touch(); app->drag_start.reset(); ReleaseCapture(); }
+        if(message==WM_MOUSEMOVE && app->drag_start && app->continuous_touch()) {
+            if(auto point=app->point(GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam))) {
+                app->touch_point=*point;
+                if(!app->touch_active && pm::begins_continuous_touch(*app->drag_start,*point,GetTickCount64()-app->drag_time)) {
+                    app->touch_active=true;
+                    app->gesture({3,*app->drag_start,*app->drag_start,50});
+                    app->gesture({4,*point,*point,50});
+                }
+            } else { app->end_touch(); app->drag_start.reset(); ReleaseCapture(); }
             return 0;
         }
         if(message==WM_TIMER && wparam==2) {
+            if(!app->touch_active && app->drag_start && app->continuous_touch() &&
+                pm::begins_continuous_touch(*app->drag_start,app->touch_point,GetTickCount64()-app->drag_time)) {
+                app->touch_active=true;
+                app->gesture({3,*app->drag_start,*app->drag_start,50});
+            }
             if(app->touch_active) app->gesture({4,app->touch_point,app->touch_point,50});
             return 0;
         }
@@ -589,7 +600,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
         } catch(...) { LocalFree(argv); return 2; }
     }
     const auto initial_preferences=app.preferences;
-    HWND window=CreateWindowW(wc.lpszClassName,L"Phone Mirror · USB 实时预览",
+    HWND window=CreateWindowW(wc.lpszClassName,L"Phone Mirror 0.6 · 单击修正版",
         WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,app.preferences.width,app.preferences.height,nullptr,nullptr,instance,&app);
     if(!window) { if(argv) LocalFree(argv); return 1; }
     MONITORINFO monitor{sizeof(monitor)}; GetMonitorInfoW(MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST),&monitor);
